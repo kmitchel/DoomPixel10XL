@@ -61,11 +61,11 @@ class DoomTouchOverlay @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
     private val paintBtnFire = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(185, 185, 25, 25)
+        color = Color.argb(195, 185, 26, 26)
         style = Paint.Style.FILL
     }
     private val paintBtnUse = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(185, 20, 105, 185)
+        color = Color.argb(185, 26, 38, 52)
         style = Paint.Style.FILL
     }
     private val paintBtnDisabled = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -81,7 +81,11 @@ class DoomTouchOverlay @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
     private val paintBtnStrafe = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(185, 100, 40, 160)
+        color = Color.argb(185, 28, 30, 36)
+        style = Paint.Style.FILL
+    }
+    private val paintBtnPod = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(65, 10, 10, 14)
         style = Paint.Style.FILL
     }
     private val paintBtnYes = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -103,6 +107,21 @@ class DoomTouchOverlay @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeWidth = 3f
     }
+    private val paintStrokePod = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(35, 255, 255, 255)
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+    }
+    private val paintStrokeUse = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(210, 85, 175, 240)
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+    }
+    private val paintStrokeStrafe = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(180, 200, 205, 215)
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+    }
     private val paintStrokeGold = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(240, 255, 215, 0)
         style = Paint.Style.STROKE
@@ -116,7 +135,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
     private val paintStrokeRed = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(240, 255, 80, 80)
         style = Paint.Style.STROKE
-        strokeWidth = 3.5f
+        strokeWidth = 3f
     }
 
     // Industrial Tactical Monospace Typeface for HUD Labels
@@ -162,8 +181,8 @@ class DoomTouchOverlay @JvmOverloads constructor(
     private var stickRadius = 140f
     private var stickActiveRadius = 100f
 
-    // Action Buttons (Right side):
-    // FIRE flanked by dedicated Strafe Left (◀ STRF) and Strafe Right (STRF ▶)
+    // Action Buttons (Right-side vertically stacked tactical cluster):
+    private val rectCluster = RectF()
     private val rectFire = RectF()
     private val rectSideLeft = RectF()
     private val rectSideRight = RectF()
@@ -377,9 +396,17 @@ class DoomTouchOverlay @JvmOverloads constructor(
         paintBase.strokeWidth = 3f * density
         paintThumbBorder.strokeWidth = 2.5f * density
         paintStroke.strokeWidth = 2f * density
+        paintStrokePod.strokeWidth = 1.5f * density
+        paintStrokeUse.strokeWidth = 2f * density
+        paintStrokeStrafe.strokeWidth = 2f * density
         paintStrokeGold.strokeWidth = 2.5f * density
         paintStrokeGreen.strokeWidth = 2.5f * density
         paintStrokeRed.strokeWidth = 2.5f * density
+
+        // Text drop shadow for high contrast over any game background
+        paintTextLarge.setShadowLayer(3f * density, 0f, 1.5f * density, Color.argb(180, 0, 0, 0))
+        paintTextMed.setShadowLayer(2.5f * density, 0f, 1.2f * density, Color.argb(180, 0, 0, 0))
+        paintTextSmall.setShadowLayer(2f * density, 0f, 1f * density, Color.argb(180, 0, 0, 0))
 
         stickRadius = 72f * density
         stickActiveRadius = 50f * density
@@ -392,48 +419,68 @@ class DoomTouchOverlay @JvmOverloads constructor(
         stickThumbX = stickCenterBaseX
         stickThumbY = stickCenterBaseY
 
+        // 2. Action Buttons (Right-side vertically stacked tactical cluster):
+        // Outer pod: rectCluster
+        // Tier 1 (Top): rectUse
+        // Tier 2 (Middle): rectFire
+        // Tier 3 (Bottom): rectSideLeft (◀) and rectSideRight (▶)
+        val rightMargin = w - (16f * density)
+        val bottomMargin = h - (16f * density)
+        val clusterW = 110f * density
+        val colLeft = rightMargin - clusterW
+        val colRight = rightMargin
 
-        // 2. Action Buttons (Bottom Right):
-        // [rectSideLeft] [rectFire] [rectSideRight] along the bottom row,
-        // with [rectUse] directly above [rectFire].
-        val rightMargin = w - (14f * density)
-        val bottomMargin = h - (18f * density)
-        val sideW = 58f * density
-        val sideH = 68f * density
-        val sideGap = 8f * density
-        val fireSize = 92f * density
+        val rowGap = 7f * density
+        val strafeH = 44f * density
+        val fireH = 74f * density
+        val useH = 44f * density
+        val podPad = 6f * density
 
-        // Right flanking button (to the right of FIRE)
-        rectSideRight.set(
-            rightMargin - sideW,
-            bottomMargin - sideH,
-            rightMargin,
-            bottomMargin
-        )
+        // Tier 3 (Bottom): Strafe dual rocker
+        val strafeBottom = bottomMargin
+        val strafeTop = strafeBottom - strafeH
+        val strafeGap = 6f * density
+        val strafeW = (clusterW - strafeGap) / 2f
 
-        // FIRE button (center of the bottom-right cluster)
-        rectFire.set(
-            rectSideRight.left - sideGap - fireSize,
-            bottomMargin - fireSize,
-            rectSideRight.left - sideGap,
-            bottomMargin
-        )
-
-        // Left flanking button (to the left of FIRE)
         rectSideLeft.set(
-            rectFire.left - sideGap - sideW,
-            bottomMargin - sideH,
-            rectFire.left - sideGap,
-            bottomMargin
+            colLeft,
+            strafeTop,
+            colLeft + strafeW,
+            strafeBottom
+        )
+        rectSideRight.set(
+            colLeft + strafeW + strafeGap,
+            strafeTop,
+            colRight,
+            strafeBottom
         )
 
-        // USE button (centered directly above FIRE)
-        val useH = 50f * density
+        // Tier 2 (Middle): FIRE button
+        val fireBottom = strafeTop - rowGap
+        val fireTop = fireBottom - fireH
+        rectFire.set(
+            colLeft,
+            fireTop,
+            colRight,
+            fireBottom
+        )
+
+        // Tier 1 (Top): USE button
+        val useBottom = fireTop - rowGap
+        val useTop = useBottom - useH
         rectUse.set(
-            rectFire.left,
-            rectFire.top - (10f * density) - useH,
-            rectFire.right,
-            rectFire.top - (10f * density)
+            colLeft,
+            useTop,
+            colRight,
+            useBottom
+        )
+
+        // Pod Backdrop surrounding the vertical stack
+        rectCluster.set(
+            colLeft - podPad,
+            useTop - podPad,
+            colRight + podPad,
+            strafeBottom + podPad
         )
 
         // 3. Center Prompt Buttons (For Y/N questions)
@@ -564,39 +611,46 @@ class DoomTouchOverlay @JvmOverloads constructor(
             }
         }
 
-        // 4. Action Buttons (Right side)
-        // FIRE (Center)
+        // 4. Action Buttons (Right-side vertically stacked tactical cluster)
+        // Background Tactical Pod
+        canvas.drawRoundRect(rectCluster, 18f * density, 18f * density, paintBtnPod)
+        canvas.drawRoundRect(rectCluster, 18f * density, 18f * density, paintStrokePod)
+
+        // Tier 1 (Top): USE button
+        drawButton(
+            canvas,
+            rectUse,
+            if (isKeyHeld(DoomBridge.KEY_USE)) paintBtnPressed else paintBtnUse,
+            paintStrokeUse,
+            "USE",
+            paintTextLarge,
+            cornerRadius = 13f * density
+        )
+
+        // Tier 2 (Middle): FIRE button
         val fireHeld = isKeyHeld(DoomBridge.KEY_FIRE)
-        canvas.drawRoundRect(rectFire, 24f * density, 24f * density, if (fireHeld) paintBtnPressed else paintBtnFire)
-        canvas.drawRoundRect(rectFire, 24f * density, 24f * density, paintStrokeRed)
+        canvas.drawRoundRect(rectFire, 15f * density, 15f * density, if (fireHeld) paintBtnPressed else paintBtnFire)
+        canvas.drawRoundRect(rectFire, 15f * density, 15f * density, paintStrokeRed)
         canvas.drawText("FIRE", rectFire.centerX(), rectFire.centerY() + (6f * density), paintTextLarge)
 
-        // Flanking Strafe buttons on either side of FIRE
+        // Tier 3 (Bottom): Strafe dual rocker buttons
         drawButton(
             canvas,
             rectSideLeft,
             if (isKeyHeld(DoomBridge.KEY_STRAFE_L)) paintBtnPressed else paintBtnStrafe,
-            paintStroke,
+            paintStrokeStrafe,
             "◀",
-            paintTextMed
+            paintTextMed,
+            cornerRadius = 13f * density
         )
         drawButton(
             canvas,
             rectSideRight,
             if (isKeyHeld(DoomBridge.KEY_STRAFE_R)) paintBtnPressed else paintBtnStrafe,
-            paintStroke,
+            paintStrokeStrafe,
             "▶",
-            paintTextMed
-        )
-
-        // USE (Directly above FIRE — opens doors/switches, never opens menu)
-        drawButton(
-            canvas,
-            rectUse,
-            if (isKeyHeld(DoomBridge.KEY_USE)) paintBtnPressed else paintBtnUse,
-            paintStroke,
-            "USE",
-            paintTextLarge
+            paintTextMed,
+            cornerRadius = 13f * density
         )
 
         // 5. Prompt Overlay (When DOOM prompts Y/N)
@@ -645,11 +699,12 @@ class DoomTouchOverlay @JvmOverloads constructor(
         fillPaint: Paint,
         strokePaint: Paint,
         label: String,
-        textPaint: Paint
+        textPaint: Paint,
+        cornerRadius: Float = 10f * resources.displayMetrics.density
     ) {
         val density = resources.displayMetrics.density
-        canvas.drawRoundRect(rect, 10f * density, 10f * density, fillPaint)
-        canvas.drawRoundRect(rect, 10f * density, 10f * density, strokePaint)
+        canvas.drawRoundRect(rect, cornerRadius, cornerRadius, fillPaint)
+        canvas.drawRoundRect(rect, cornerRadius, cornerRadius, strokePaint)
         canvas.drawText(label, rect.centerX(), rect.centerY() + (5f * density), textPaint)
     }
 
