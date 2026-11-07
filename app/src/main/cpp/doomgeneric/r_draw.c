@@ -92,7 +92,7 @@ byte*			dc_source_prev = NULL;
 byte*			dc_source_next = NULL;
 int			dc_colfrac = 0;
 
-extern int		g_aiUpscaleMode;
+extern int		g_upscaleMode;
 extern byte		r_pal_blend50[256][256];
 extern byte		r_pal_blend75[256][256];
 extern byte		r_pal_sim[256][256];
@@ -142,7 +142,7 @@ void R_DrawColumn (void)
     frac = dc_texturemid + (dc_yl-centery)*fracstep; 
 
     // 4x Edge-Directed Sub-Texel Wall Reconstruction when magnified
-    if (g_aiUpscaleMode > 0 && dc_source_prev != NULL && dc_source_next != NULL && dc_iscale < FRACUNIT)
+    if (g_upscaleMode > 0 && dc_source_prev != NULL && dc_source_next != NULL && dc_iscale < FRACUNIT)
     {
 	const byte *side_col = (dc_colfrac < 2) ? dc_source_prev : dc_source_next;
 	int h_edge = (dc_colfrac == 0 || dc_colfrac == 3);
@@ -675,7 +675,7 @@ void R_DrawSpan (void)
     // We do not check for zero spans here?
     count = ds_x2 - ds_x1;
 
-    if (g_aiUpscaleMode > 0)
+    if (g_upscaleMode > 0)
     {
 	fixed_t xfrac = ds_xfrac;
 	fixed_t yfrac = ds_yfrac;

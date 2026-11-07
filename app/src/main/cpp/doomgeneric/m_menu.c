@@ -2054,11 +2054,11 @@ static void M_ExecuteCheatOnGameThread(int cheatId)
         if (gamestate == GS_LEVEL && plr->mo)
         {
             if (cheatId == 102)
-                plr->message = "AI UPSCALE: FULL HD (4X WAD + 1280X800 XBR)";
+                plr->message = "FILTER: 4X TEXTURES + 1280X800 FRAME";
             else if (cheatId == 101)
-                plr->message = "AI UPSCALE: 4X WAD ASSETS ONLY";
+                plr->message = "FILTER: 4X TEXTURES";
             else
-                plr->message = "AI UPSCALE: OFF (CLASSIC 1993)";
+                plr->message = "FILTER: OFF";
         }
         S_StartSound(NULL, sfx_swtchn);
         return;

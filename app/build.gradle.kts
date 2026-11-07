@@ -5,6 +5,10 @@ plugins {
 
 android {
     namespace = "com.id.doom"
+
+    buildFeatures {
+        buildConfig = true
+    }
     compileSdk = 35
     ndkVersion = "27.0.12077973"
 
@@ -29,7 +33,7 @@ android {
             }
         }
 
-        // Strictly target 64-bit architectures required by Tensor G-series
+        // ARM64 devices and x86-64 emulators.
         ndk {
             abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
         }
@@ -62,12 +66,6 @@ android {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
-        }
-    }
-
-    sourceSets {
-        getByName("main") {
-            assets.srcDirs("src/main/assets")
         }
     }
 

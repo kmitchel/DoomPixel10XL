@@ -8,6 +8,7 @@ import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
@@ -29,7 +30,8 @@ class WadManager(private val context: Context) {
         get() = File(context.filesDir, "saves").apply { if (!exists()) mkdirs() }
 
     /**
-     * Validates whether a file is a playable, well-formed DOOM base-game IWAD.
+     * Checks the IWAD container bounds and the presence of key resource names.
+     * This does not validate lump contents or guarantee that the engine can load the file.
      * Enforces:
      * - Minimum size of 12 bytes
      * - Magic header is strictly "IWAD" (stand-alone base game container)
@@ -189,7 +191,7 @@ class WadManager(private val context: Context) {
 
     /**
      * Imports a user-selected WAD file via Android Storage Access Framework (SAF).
-     * Streams into a temporary file, validates complete IWAD structure and required resources,
+     * Streams into a temporary file, checks IWAD directory bounds and required resource names,
      * and atomically promotes via atomic filesystem rename without pre-deleting the original.
      * Protects bundled doom1.wad recovery copy from ever being overwritten.
      */
@@ -229,7 +231,7 @@ class WadManager(private val context: Context) {
                     StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE
                 )
-            } catch (e: Exception) {
+            } catch (e: AtomicMoveNotSupportedException) {
                 // Fallback to standard replace if filesystem does not support atomic move
                 Files.move(
                     tmpFile.toPath(),
@@ -334,7 +336,7 @@ class WadManager(private val context: Context) {
                     StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE
                 )
-            } catch (e: Exception) {
+            } catch (e: AtomicMoveNotSupportedException) {
                 Files.move(
                     tmpFile.toPath(),
                     destFile.toPath(),

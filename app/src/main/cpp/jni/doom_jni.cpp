@@ -44,7 +44,7 @@ static std::atomic<float> g_analogForward{0.0f};
 static std::atomic<float> g_analogStrafe{0.0f};
 static std::atomic<float> g_analogTurn{0.0f};
 
-extern "C" int g_aiUpscaleMode;
+extern "C" int g_upscaleMode;
 static std::atomic<int> s_pendingUpscaleMode{2};
 static int g_currentWindowScale = -1;
 static std::atomic<bool> s_pendingConfigSave{false};
@@ -55,7 +55,7 @@ static std::atomic<int> s_cachedUiStateMask{1}; // Default bit 0 (MENU) enabled
 
 extern "C" void R_SyncFrameUpscaleMode(void)
 {
-    g_aiUpscaleMode = s_pendingUpscaleMode.load(std::memory_order_relaxed);
+    g_upscaleMode = s_pendingUpscaleMode.load(std::memory_order_relaxed);
 }
 
 // Fast SWAR 50/50 and 75/25 32-bit RGBA color blending
@@ -78,8 +78,8 @@ static inline int ColorDist(uint32_t c1, uint32_t c2)
     return (dr * dr * 3) + (dg * dg * 4) + (db * db * 2);
 }
 
-// Contrast-Adaptive Sharpening (CAS) for mid-tone texture and sprite detail
-static inline uint32_t ApplyCAS(uint32_t E, uint32_t B, uint32_t D, uint32_t F, uint32_t H)
+// Fixed-strength unsharp mask using the four neighboring pixels.
+static inline uint32_t SharpenPixel(uint32_t E, uint32_t B, uint32_t D, uint32_t F, uint32_t H)
 {
     uint32_t avg = Blend50(Blend50(B, H), Blend50(D, F));
     if (E == avg) return E;
@@ -105,8 +105,8 @@ static inline uint32_t ApplyCAS(uint32_t E, uint32_t B, uint32_t D, uint32_t F, 
            (static_cast<uint32_t>(gOut) << 8) | static_cast<uint32_t>(rOut);
 }
 
-// Real-time 2x (640x400 -> 1280x800) Edge-Directed xBR + CAS Super-Resolution Pass
-static void UpscaleFrameXbrCas2x(const uint32_t* src, int width, int height, uint32_t* dstPixels, int stride)
+// Custom edge-directed 2x filter (640x400 -> 1280x800) with sharpening.
+static void UpscaleFrame2x(const uint32_t* src, int width, int height, uint32_t* dstPixels, int stride)
 {
     for (int y = 0; y < height; ++y) {
         const uint32_t* rowPrev = src + ((y > 0) ? (y - 1) : 0) * width;
@@ -139,10 +139,10 @@ static void UpscaleFrameXbrCas2x(const uint32_t* src, int width, int height, uin
             uint32_t G = rowNext[xm1];
             uint32_t I = rowNext[xp1];
 
-            uint32_t Es = ApplyCAS(E, B, D, F, H);
+            uint32_t Es = SharpenPixel(E, B, D, F, H);
             uint32_t E0 = Es, E1 = Es, E2 = Es, E3 = Es;
 
-            // xBR Edge-Directed Reconstruction for Top-Left (E0)
+            // Blend the top-left corner when neighboring colors suggest an edge.
             int d_DB = ColorDist(D, B);
             int d_EA = ColorDist(E, A);
             if (d_DB < d_EA && d_DB < 9500 && ColorDist(E, D) > d_DB && ColorDist(E, B) > d_DB) {
@@ -191,7 +191,7 @@ extern "C" void Android_BlitFrame(const uint32_t* screenBuffer, int width, int h
         return;
     }
 
-    int desiredScale = (g_aiUpscaleMode >= 2) ? 2 : 1;
+    int desiredScale = (g_upscaleMode >= 2) ? 2 : 1;
     if (g_currentWindowScale != desiredScale) {
         ANativeWindow_setBuffersGeometry(
             g_window,
@@ -212,7 +212,7 @@ extern "C" void Android_BlitFrame(const uint32_t* screenBuffer, int width, int h
     int stride = buffer.stride;
 
     if (desiredScale == 2 && buffer.width >= width * 2 && buffer.height >= height * 2) {
-        UpscaleFrameXbrCas2x(screenBuffer, width, height, dstPixels, stride);
+        UpscaleFrame2x(screenBuffer, width, height, dstPixels, stride);
     } else {
         int copyWidth = (width < buffer.width) ? width : buffer.width;
         int copyHeight = (height < buffer.height) ? height : buffer.height;

@@ -270,7 +270,7 @@ void V_DrawPatchDirect(int x, int y, patch_t *patch)
     V_DrawPatch(x, y, patch); 
 } 
 
-extern int g_aiUpscaleMode;
+extern int g_upscaleMode;
 extern byte *colormaps;
 extern byte r_pal_blend75[256][256];
 
@@ -284,7 +284,7 @@ void V_DrawFontPatch(int x, int y, patch_t *patch)
     byte *source;
     int w;
 
-    if (g_aiUpscaleMode == 0 || colormaps == NULL)
+    if (g_upscaleMode == 0 || colormaps == NULL)
     {
         V_DrawPatch(x, y, patch);
         return;

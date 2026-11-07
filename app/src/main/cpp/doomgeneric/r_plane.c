@@ -417,9 +417,9 @@ void R_DrawPlanes (void)
         lumpnum = firstflat + flattranslation[pl->picnum];
 	boolean is_upscaled = false;
 	{
-	    extern int g_aiUpscaleMode;
+	    extern int g_upscaleMode;
 	    extern byte *R_GetUpscaledFlat(int flatnum);
-	    if (g_aiUpscaleMode > 0 && !detailshift)
+	    if (g_upscaleMode > 0 && !detailshift)
 	    {
 		ds_source = R_GetUpscaledFlat(flattranslation[pl->picnum]);
 		if (ds_source != NULL)

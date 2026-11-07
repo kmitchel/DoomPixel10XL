@@ -319,7 +319,7 @@ void I_UpdateNoBlit (void)
 // I_FinishUpdate
 //
 
-extern int g_aiUpscaleMode;
+extern int g_upscaleMode;
 extern byte r_pal_sim[256][256];
 static uint32_t s_rgbaPalette[256];
 
@@ -339,7 +339,7 @@ void I_FinishUpdate (void)
     int x_offset, y_offset, x_offset_end;
     unsigned char *line_in, *line_out;
 
-    if (g_aiUpscaleMode > 0 && fb_scaling == 2 && s_Fb.bits_per_pixel == 32)
+    if (g_upscaleMode > 0 && fb_scaling == 2 && s_Fb.bits_per_pixel == 32)
     {
         uint32_t *dstFb = (uint32_t *)DG_ScreenBuffer;
         const int dstStride = s_Fb.xres;
