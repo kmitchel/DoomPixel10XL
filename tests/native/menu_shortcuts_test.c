@@ -7,7 +7,9 @@
 #include "doomkeys.h"
 #include "g_game.h"
 #include "i_sound.h"
+#include "i_video.h"
 #include "m_controls.h"
+#include "m_config.h"
 #include "m_menu.h"
 #include "s_sound.h"
 #include "v_video.h"
@@ -24,6 +26,9 @@ music_module_t DG_music_module = {0};
 int use_libsamplerate = 0;
 float libsamplerate_scale = 0.65f;
 
+extern boolean inhelpscreens;
+extern int showMessages;
+extern int mouseSensitivity;
 extern int usegamma;
 extern gameaction_t gameaction;
 extern int quickSaveSlot;
@@ -48,6 +53,9 @@ int main(int argc, char **argv)
     assert(W_AddFile(argv[1]));
     W_GenerateHashTable();
     savegamedir = argv[2];
+    M_SetConfigDir(argv[2]);
+    M_SetConfigFilenames("default.cfg", "extra.cfg");
+    M_LoadDefaults();
     gamemode = shareware;
     gamestate = GS_LEVEL;
     usergame = true;
@@ -98,6 +106,73 @@ int main(int argc, char **argv)
     assert(!menuactive);
     press(KEY_F11);
     assert(usegamma == 1);
-    puts("Menu shortcut regression tests passed");
+    // Tiny moves while holding Read This must not advance through its pages.
+    static byte framebuffer[SCREENWIDTH * SCREENHEIGHT];
+    V_UseBuffer(framebuffer);
+    gameversion = exe_doom_1_9;
+    M_StartControlPanel();
+    M_TouchAt(250, 256); // Main menu: Read This.
+    M_DragMenuAt(251); // Move before the engine processes the initial press.
+    M_Ticker();
+    for (int i = 0; i < 12; ++i)
+    {
+        M_DragMenuAt(250 + i);
+        M_Ticker();
+    }
+    M_Drawer();
+    assert(inhelpscreens);
+    M_TouchAt(250, 256); // A fresh press advances to the second page.
+    M_Ticker();
+    M_Drawer();
+    assert(inhelpscreens);
+    M_TouchAt(250, 256); // Another fresh press returns to the main menu.
+    M_Ticker();
+    M_Drawer();
+    assert(!inhelpscreens);
+
+    M_TouchAt(250, 160); // Main menu: Options.
+    M_Ticker();
+    showMessages = 1;
+    M_TouchAt(250, 106); // Options: Messages.
+    M_Ticker();
+    assert(showMessages == 0);
+    for (int i = 0; i < 12; ++i)
+    {
+        M_DragMenuAt(250 + i);
+        M_Ticker();
+        assert(showMessages == 0);
+    }
+
+    // A move queued before the first tick must preserve the initial slider press.
+    M_TouchAt(136, 234); // Options: Mouse sensitivity slider, minimum.
+    M_DragMenuAt(280);
+    M_Ticker();
+    assert(mouseSensitivity == 9);
+    M_DragMenuAt(136);
+    M_Ticker();
+    assert(mouseSensitivity == 0);
+    M_TouchAt(250, 106); // A fresh non-slider press releases the slider capture.
+    M_DragMenuAt(280);
+    M_Ticker();
+    assert(showMessages == 1 && mouseSensitivity == 0);
+
+    press(KEY_ESCAPE);
+    M_StartControlPanel();
+    quickSaveSlot = -1;
+    sendsave = false;
+    press(KEY_F6);
+    M_TouchAt(200, 108); // Select save slot 0, entering its name.
+    M_Ticker();
+    assert(saveStringEnter && !sendsave);
+    for (int i = 0; i < 12; ++i)
+    {
+        M_DragMenuAt(200 + i);
+        M_Ticker();
+        assert(saveStringEnter && !sendsave);
+    }
+    M_TouchAt(200, 108); // A separate press explicitly accepts the save.
+    M_Ticker();
+    assert(!saveStringEnter && sendsave);
+    puts("Menu shortcut and touch gesture regression tests passed");
     return 0;
 }

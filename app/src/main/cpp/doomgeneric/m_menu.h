@@ -59,6 +59,7 @@ extern boolean menuactive;
 extern int messageToPrint;
 
 void M_TouchAt(int x, int y);
+void M_DragMenuAt(int x);
 
 
 

@@ -468,6 +468,7 @@ Java_com_id_doom_DoomBridge_nativeSendKey(JNIEnv* /*env*/, jclass /*clazz*/, jin
 }
 
 extern "C" void M_TouchAt(int x, int y);
+extern "C" void M_DragMenuAt(int x);
 extern "C" void Android_TriggerCheat(int cheatId);
 extern "C" int menuactive;
 extern "C" int automapactive;
@@ -564,6 +565,12 @@ Java_com_id_doom_DoomBridge_nativeTouchScreen(JNIEnv* /*env*/, jclass /*clazz*/,
     int x = static_cast<int>(normX * DOOMGENERIC_RESX);
     int y = static_cast<int>(normY * DOOMGENERIC_RESY);
     M_TouchAt(x, y);
+}
+
+JNIEXPORT void JNICALL
+Java_com_id_doom_DoomBridge_nativeDragMenu(JNIEnv* /*env*/, jclass /*clazz*/, jfloat normX)
+{
+    M_DragMenuAt(static_cast<int>(normX * DOOMGENERIC_RESX));
 }
 
 JNIEXPORT void JNICALL

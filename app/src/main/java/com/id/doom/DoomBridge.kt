@@ -90,6 +90,7 @@ object DoomBridge {
     @JvmStatic external fun nativeIsPromptActive(): Boolean
     @JvmStatic external fun nativeGetUiStateMask(): Int
     @JvmStatic external fun nativeTouchScreen(normX: Float, normY: Float)
+    @JvmStatic external fun nativeDragMenu(normX: Float)
     @JvmStatic external fun nativeSetPaused(paused: Boolean)
     @JvmStatic external fun nativeStop()
 }

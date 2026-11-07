@@ -865,6 +865,8 @@ class DoomTouchOverlay @JvmOverloads constructor(
         val distToStick = hypot((x - stickCenterBaseX).toDouble(), (y - stickCenterBaseY).toDouble()).toFloat()
         if (DoomBridge.nativeIsMenuActive() && distToStick > stickRadius * 0.85f &&
             x in viewportLeft..(viewportLeft + viewportW) && y in viewportTop..(viewportTop + viewportH)) {
+            // Only one finger owns direct menu interaction at a time.
+            if (pointerRoles.values.any { it is PointerRole.MenuDrag }) return
             pointerRoles[pid] = PointerRole.MenuDrag
             DoomBridge.onHapticEvent(1)
             val normX = ((x - viewportLeft) / viewportW).coerceIn(0f, 1f)
@@ -968,12 +970,10 @@ class DoomTouchOverlay @JvmOverloads constructor(
             is PointerRole.MenuDrag -> {
                 if (DoomBridge.nativeIsMenuActive()) {
                     val viewportW = (height * 4f / 3f).coerceAtMost(width.toFloat())
-                    val viewportH = (viewportW * 3f / 4f).coerceAtMost(height.toFloat())
                     val viewportLeft = (width - viewportW) / 2f
-                    val viewportTop = (height - viewportH) / 2f
                     val normX = ((x - viewportLeft) / viewportW).coerceIn(0f, 1f)
-                    val normY = ((y - viewportTop) / viewportH).coerceIn(0f, 1f)
-                    DoomBridge.nativeTouchScreen(normX, normY)
+                    // Movement may adjust a slider captured on press, never select again.
+                    DoomBridge.nativeDragMenu(normX)
                 }
             }
             is PointerRole.Look -> {
