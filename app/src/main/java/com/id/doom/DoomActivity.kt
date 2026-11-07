@@ -233,8 +233,6 @@ class DoomActivity : ComponentActivity() {
         // 1. Configure Edge-to-Edge, Keep Screen On, and Camera Cutout for Pixel 10 XL
         setupEdgeToEdge()
 
-        // 2. Request 120Hz LTPO High Refresh Rate
-        requestHighRefreshRate()
 
         // 3. Intercept Android system Back gesture to toggle DOOM Menu instead of killing game
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -348,23 +346,6 @@ class DoomActivity : ComponentActivity() {
         }
     }
 
-    private fun requestHighRefreshRate() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val display = this.display
-            if (display != null) {
-                // Find 120Hz display mode if supported
-                val targetMode = display.supportedModes.find { mode ->
-                    mode.refreshRate >= 119.0f
-                }
-                if (targetMode != null) {
-                    val params = window.attributes
-                    params.preferredDisplayModeId = targetMode.modeId
-                    window.attributes = params
-                    Log.i(TAG, "Requested 120Hz mode ID: ${targetMode.modeId} (${targetMode.refreshRate} Hz)")
-                }
-            }
-        }
-    }
 
     // Physical Gamepad Support
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {

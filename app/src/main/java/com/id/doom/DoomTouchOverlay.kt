@@ -534,7 +534,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
 
         // 2. Version Watermark
         canvas.drawRoundRect(rectVersion, 6f * density, 6f * density, paintBtnFill)
-        canvas.drawText("DOOM v1.3.7 • 4:3 AI-HD (Pixel 10 XL)", rectVersion.centerX(), rectVersion.centerY() + (3.5f * density), paintTextVersion)
+        canvas.drawText("DOOM v1.3.8 • 4:3 AI-HD (Pixel 10 XL)", rectVersion.centerX(), rectVersion.centerY() + (3.5f * density), paintTextVersion)
 
         // 3. Top Utility Buttons (Only drawn when DOOM is listening for them)
         if (!rectEsc.isEmpty) {
@@ -679,8 +679,8 @@ class DoomTouchOverlay @JvmOverloads constructor(
             }
         }
 
-        // Periodically refresh overlay so top bar buttons appear/disappear immediately on state changes
-        postInvalidateDelayed(40)
+        // Periodically refresh overlay so top bar buttons appear/disappear on state changes without high-rate wakeups
+        postInvalidateDelayed(100)
     }
 
     private fun drawButton(

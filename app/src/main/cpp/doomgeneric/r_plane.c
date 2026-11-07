@@ -415,13 +415,22 @@ void R_DrawPlanes (void)
 	
 	// regular flat
         lumpnum = firstflat + flattranslation[pl->picnum];
+	boolean is_upscaled = false;
 	{
 	    extern int g_aiUpscaleMode;
 	    extern byte *R_GetUpscaledFlat(int flatnum);
 	    if (g_aiUpscaleMode > 0 && !detailshift)
 	    {
 		ds_source = R_GetUpscaledFlat(flattranslation[pl->picnum]);
-		Z_ChangeTag(ds_source, PU_STATIC);
+		if (ds_source != NULL)
+		{
+		    is_upscaled = true;
+		    Z_ChangeTag(ds_source, PU_STATIC);
+		}
+		else
+		{
+		    ds_source = W_CacheLumpNum(lumpnum, PU_STATIC);
+		}
 	    }
 	    else
 	    {
@@ -453,16 +462,13 @@ void R_DrawPlanes (void)
 			pl->bottom[x]);
 	}
 	
+	if (is_upscaled)
 	{
-	    extern int g_aiUpscaleMode;
-	    if (g_aiUpscaleMode > 0 && !detailshift)
-	    {
-		Z_ChangeTag(ds_source, PU_CACHE);
-	    }
-	    else
-	    {
-		W_ReleaseLumpNum(lumpnum);
-	    }
+	    Z_ChangeTag(ds_source, PU_CACHE);
+	}
+	else
+	{
+	    W_ReleaseLumpNum(lumpnum);
 	}
     }
 }

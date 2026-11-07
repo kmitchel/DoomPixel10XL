@@ -36,6 +36,9 @@ static std::atomic<int> s_dispatchedSessionId{0};
 static std::string g_wadPath;
 static std::string g_saveDir;
 
+#include <condition_variable>
+#include <chrono>
+
 // Virtual analog stick state
 static std::atomic<float> g_analogForward{0.0f};
 static std::atomic<float> g_analogStrafe{0.0f};
@@ -45,6 +48,9 @@ extern "C" int g_aiUpscaleMode;
 static std::atomic<int> s_pendingUpscaleMode{2};
 static int g_currentWindowScale = -1;
 static std::atomic<bool> s_pendingConfigSave{false};
+static std::mutex s_saveMutex;
+static std::condition_variable s_saveCv;
+static uint32_t s_saveSequence{0};
 static std::atomic<int> s_cachedUiStateMask{1}; // Default bit 0 (MENU) enabled
 
 extern "C" void R_SyncFrameUpscaleMode(void)
@@ -344,6 +350,11 @@ static void* GameThreadFunc(void* /*arg*/)
     while (g_gameRunning) {
         if (s_pendingConfigSave.exchange(false, std::memory_order_relaxed)) {
             M_SaveDefaults();
+            {
+                std::lock_guard<std::mutex> lock(s_saveMutex);
+                s_saveSequence++;
+            }
+            s_saveCv.notify_all();
         }
         if (g_gamePaused) {
             // Drain input queue while paused so keys never get stuck across pause/resume
@@ -388,8 +399,9 @@ Java_com_id_doom_DoomBridge_nativePrepareInit(JNIEnv* /*env*/, jclass /*clazz*/)
         LOGI("nativePrepareInit: DOOM engine already running — resuming session %d", s_engineSessionId.load());
         return 0; // 0 indicates reconnecting to an existing running engine session
     }
-    int nextSession = s_engineSessionId.load(std::memory_order_relaxed) + 1;
-    LOGI("nativePrepareInit: prepared new engine session %d", nextSession);
+    // Monotonically reserve session ID so prepare and init share the exact reserved session identity
+    int nextSession = ++s_engineSessionId;
+    LOGI("nativePrepareInit: reserved new engine session %d", nextSession);
     return static_cast<jint>(nextSession);
 }
 
@@ -402,7 +414,10 @@ Java_com_id_doom_DoomBridge_nativeInit(JNIEnv* env, jclass /*clazz*/, jstring wa
         return 0; // 0 indicates reconnected to existing session
     }
 
-    int session = ++s_engineSessionId;
+    int session = s_engineSessionId.load(std::memory_order_relaxed);
+    if (session == 0) {
+        session = ++s_engineSessionId;
+    }
     s_dispatchedSessionId.store(0);
 
     const char* cWad = env->GetStringUTFChars(wadPath, nullptr);
@@ -465,7 +480,10 @@ extern "C" int mouseSensitivity;
 
 extern "C" void Android_GetAnalogMove(float* outForward, float* outStrafe, float* outTurn)
 {
-    if (menuactive || (automapactive && !am_is_follow_player())) {
+    int mask = s_cachedUiStateMask.load(std::memory_order_acquire);
+    bool isMenu = (mask & (1 << 6)) != 0 || (mask & (1 << 3)) != 0;
+    bool isAutomapFreePan = (mask & (1 << 7)) != 0;
+    if (isMenu || isAutomapFreePan) {
         *outForward = 0.0f;
         *outStrafe = 0.0f;
         *outTurn = 0.0f;
@@ -491,8 +509,8 @@ Java_com_id_doom_DoomBridge_nativeSendAnalog(JNIEnv* /*env*/, jclass /*clazz*/, 
 
     int mask = s_cachedUiStateMask.load(std::memory_order_acquire);
     bool isMenu = (mask & (1 << 6)) != 0 || (mask & (1 << 3)) != 0;
-    bool isAutomap = (mask & (1 << 5)) != 0;
-    bool useArrowKeys = isMenu || (isAutomap && !am_is_follow_player());
+    bool isAutomapFreePan = (mask & (1 << 7)) != 0;
+    bool useArrowKeys = isMenu || isAutomapFreePan;
 
     // During active gameplay (!useArrowKeys), movement & turning are driven continuously
     // via Android_GetAnalogMove() in G_BuildTiccmd() — release any menu/map keys cleanly.
@@ -637,8 +655,12 @@ Java_com_id_doom_DoomBridge_nativeStop(JNIEnv* /*env*/, jclass /*clazz*/)
     g_analogTurn.store(0.0f, std::memory_order_relaxed);
     Android_ReleaseHeldKeys();
     if (g_gameRunning) {
-        s_pendingConfigSave.store(true, std::memory_order_relaxed);
-        usleep(30000);
+        std::unique_lock<std::mutex> lock(s_saveMutex);
+        uint32_t seq = s_saveSequence;
+        s_pendingConfigSave.store(true, std::memory_order_release);
+        s_saveCv.wait_for(lock, std::chrono::milliseconds(100), [&seq]() {
+            return s_saveSequence != seq;
+        });
     }
 }
 

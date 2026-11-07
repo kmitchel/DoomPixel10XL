@@ -19,7 +19,9 @@
 static unsigned short s_KeyQueue[KEYQUEUE_SIZE];
 static unsigned int s_KeyQueueWriteIndex = 0;
 static unsigned int s_KeyQueueReadIndex = 0;
-static unsigned char s_HeldKeys[256] = {0};
+static unsigned char s_DesiredKeys[256] = {0};
+static unsigned char s_DeliveredKeys[256] = {0};
+static int s_ReleaseAllRequested = 0;
 static pthread_mutex_t s_KeyMutex = PTHREAD_MUTEX_INITIALIZER;
 
 static float s_mouseDeltaX = 0.0f;
@@ -55,19 +57,12 @@ int Android_GetMouseDeltaY(void)
 void Android_QueueKey(int pressed, unsigned char doomKey)
 {
     pthread_mutex_lock(&s_KeyMutex);
+    s_DesiredKeys[doomKey] = pressed ? 1 : 0;
     unsigned int nextWrite = (s_KeyQueueWriteIndex + 1) % KEYQUEUE_SIZE;
     if (nextWrite != s_KeyQueueReadIndex) {
         unsigned short keyData = ((pressed ? 1 : 0) << 8) | (doomKey & 0xFF);
         s_KeyQueue[s_KeyQueueWriteIndex] = keyData;
         s_KeyQueueWriteIndex = nextWrite;
-        s_HeldKeys[doomKey] = pressed ? 1 : 0;
-    } else if (!pressed && s_HeldKeys[doomKey]) {
-        // If full, overwrite oldest slot with key release so keys never stick
-        s_KeyQueueReadIndex = (s_KeyQueueReadIndex + 1) % KEYQUEUE_SIZE;
-        unsigned short keyData = (doomKey & 0xFF);
-        s_KeyQueue[s_KeyQueueWriteIndex] = keyData;
-        s_KeyQueueWriteIndex = nextWrite;
-        s_HeldKeys[doomKey] = 0;
     }
     pthread_mutex_unlock(&s_KeyMutex);
 }
@@ -75,18 +70,10 @@ void Android_QueueKey(int pressed, unsigned char doomKey)
 void Android_ReleaseHeldKeys(void)
 {
     pthread_mutex_lock(&s_KeyMutex);
-    s_KeyQueueReadIndex = 0;
-    s_KeyQueueWriteIndex = 0;
     for (int k = 0; k < 256; ++k) {
-        if (s_HeldKeys[k]) {
-            s_HeldKeys[k] = 0;
-            unsigned int nextWrite = (s_KeyQueueWriteIndex + 1) % KEYQUEUE_SIZE;
-            if (nextWrite != s_KeyQueueReadIndex) {
-                s_KeyQueue[s_KeyQueueWriteIndex] = (unsigned short)(k & 0xFF);
-                s_KeyQueueWriteIndex = nextWrite;
-            }
-        }
+        s_DesiredKeys[k] = 0;
     }
+    s_ReleaseAllRequested = 1;
     pthread_mutex_unlock(&s_KeyMutex);
 }
 
@@ -123,7 +110,24 @@ int DG_GetKey(int* pressed, unsigned char* doomKey)
         s_KeyQueueReadIndex = (s_KeyQueueReadIndex + 1) % KEYQUEUE_SIZE;
         *pressed = (keyData >> 8) & 0x01;
         *doomKey = (unsigned char)(keyData & 0xFF);
+        s_DeliveredKeys[*doomKey] = *pressed ? 1 : 0;
         hasKey = 1;
+    } else {
+        // Queue is empty: reconcile any key delivered as held to the engine whose
+        // desired state is released or if release-all was requested
+        for (int k = 0; k < 256; ++k) {
+            if (s_DeliveredKeys[k] && (!s_DesiredKeys[k] || s_ReleaseAllRequested)) {
+                *pressed = 0;
+                *doomKey = (unsigned char)k;
+                s_DeliveredKeys[k] = 0;
+                s_DesiredKeys[k] = 0;
+                hasKey = 1;
+                break;
+            }
+        }
+        if (!hasKey) {
+            s_ReleaseAllRequested = 0;
+        }
     }
     pthread_mutex_unlock(&s_KeyMutex);
     return hasKey;

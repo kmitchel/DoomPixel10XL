@@ -2410,6 +2410,11 @@ int Android_ComputeUiStateMask(void)
     if (inLevelGameplay && automapactive)
     {
         mask |= (1 << 5);
+        extern int am_is_follow_player(void);
+        if (!am_is_follow_player())
+        {
+            mask |= (1 << 7); // Bit 7 (0x0080): Automap Free-Pan active
+        }
     }
 
     // Bit 6 (0x0040): MENU UTILITIES (QSAVE, QLOAD, GAMMA, CHEATS, WAD) — ONLY shown when Menu is open

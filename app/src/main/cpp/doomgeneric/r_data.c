@@ -1092,7 +1092,7 @@ byte *R_GetUpscaledFlat (int flatnum)
 
     if (flatnum < 0 || flatnum >= numflats || !upscaled_flats)
     {
-        return (byte *)W_CacheLumpNum(firstflat + flatnum, PU_CACHE);
+        return NULL;
     }
 
     if (upscaled_flats[flatnum] != NULL)

@@ -824,24 +824,6 @@ void R_DrawSpanLow (void)
 
     dest = ylookup[ds_y] + columnofs[ds_x1];
 
-    if (g_aiUpscaleMode > 0 && !detailshift)
-    {
-	fixed_t xfrac = ds_xfrac;
-	fixed_t yfrac = ds_yfrac;
-	fixed_t xstep = ds_xstep;
-	fixed_t ystep = ds_ystep;
-
-	do
-	{
-	    spot = ((yfrac >> 6) & 0xff00) | ((xfrac >> 14) & 0x00ff);
-	    *dest++ = ds_colormap[ds_source[spot]];
-	    *dest++ = ds_colormap[ds_source[spot]];
-	    xfrac += xstep;
-	    yfrac += ystep;
-	} while (count--);
-	return;
-    }
-
     position = ((ds_xfrac << 10) & 0xffff0000)
              | ((ds_yfrac >> 6)  & 0x0000ffff);
     step = ((ds_xstep << 10) & 0xffff0000)

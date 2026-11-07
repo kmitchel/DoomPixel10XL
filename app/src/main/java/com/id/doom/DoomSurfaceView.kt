@@ -43,9 +43,6 @@ class DoomSurfaceView @JvmOverloads constructor(
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         Log.i(TAG, "surfaceCreated: Attaching native 4:3 surface")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            holder.surface.setFrameRate(120.0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
-        }
         DoomBridge.nativeSetSurface(holder.surface)
     }
 
