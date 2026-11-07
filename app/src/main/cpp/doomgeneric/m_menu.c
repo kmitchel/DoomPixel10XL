@@ -1625,7 +1625,31 @@ boolean M_Responder (event_t* ev)
 	return true;
     }
 
-    // F-Keys
+    // These shortcuts are also exposed by the Android overlay while the
+    // menu is open. Keep save-name entry and confirmation handling above them.
+    if (key == key_menu_qsave)
+    {
+        S_StartSound(NULL, sfx_swtchn);
+        M_QuickSave();
+        return true;
+    }
+    else if (key == key_menu_qload)
+    {
+        S_StartSound(NULL, sfx_swtchn);
+        M_QuickLoad();
+        return true;
+    }
+    else if (key == key_menu_gamma)
+    {
+        usegamma++;
+        if (usegamma > 4)
+            usegamma = 0;
+        players[consoleplayer].message = DEH_String(gammamsg[usegamma]);
+        I_SetPalette(W_CacheLumpName(DEH_String("PLAYPAL"), PU_CACHE));
+        return true;
+    }
+
+    // Other F-keys remain gameplay shortcuts.
     if (!menuactive)
     {
 	if (key == key_menu_decscreen)      // Screen size down
@@ -1685,12 +1709,6 @@ boolean M_Responder (event_t* ev)
 	    S_StartSound(NULL,sfx_swtchn);
 	    return true;
         }
-        else if (key == key_menu_qsave)    // Quicksave
-        {
-	    S_StartSound(NULL,sfx_swtchn);
-	    M_QuickSave();
-	    return true;
-        }
         else if (key == key_menu_endgame)  // End game
         {
 	    S_StartSound(NULL,sfx_swtchn);
@@ -1703,27 +1721,12 @@ boolean M_Responder (event_t* ev)
 	    S_StartSound(NULL,sfx_swtchn);
 	    return true;
         }
-        else if (key == key_menu_qload)    // Quickload
-        {
-	    S_StartSound(NULL,sfx_swtchn);
-	    M_QuickLoad();
-	    return true;
-        }
         else if (key == key_menu_quit)     // Quit DOOM
         {
 	    S_StartSound(NULL,sfx_swtchn);
 	    M_QuitDOOM(0);
 	    return true;
         }
-        else if (key == key_menu_gamma)    // gamma toggle
-        {
-	    usegamma++;
-	    if (usegamma > 4)
-		usegamma = 0;
-	    players[consoleplayer].message = DEH_String(gammamsg[usegamma]);
-            I_SetPalette (W_CacheLumpName (DEH_String("PLAYPAL"),PU_CACHE));
-	    return true;
-	}
     }
 
     // Pop-up menu?

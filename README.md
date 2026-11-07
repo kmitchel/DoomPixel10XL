@@ -38,4 +38,4 @@ On Linux with a C++17 compiler and Bash:
 ./tests/native/run.sh
 ```
 
-This runs MUS parser and analog movement regressions with undefined-behavior sanitization. The tests use inert Android/AAudio headers and do not test audio-device behavior or replace an Android build.
+This runs MUS parser, analog movement, and menu shortcut regressions with undefined-behavior sanitization. The tests use inert Android/AAudio headers and do not test audio-device behavior or replace an Android build.
