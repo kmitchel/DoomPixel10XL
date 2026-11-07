@@ -182,6 +182,9 @@ void D_Display (void)
     boolean			wipe;
     boolean			redrawsbar;
 
+    extern void R_SyncFrameUpscaleMode(void);
+    R_SyncFrameUpscaleMode();
+
     if (nodrawers)
     	return;                    // for comparative timing / profiling
 		

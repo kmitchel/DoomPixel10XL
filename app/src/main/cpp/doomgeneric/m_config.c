@@ -1608,7 +1608,6 @@ static const int scantokey[128] =
 
 static void SaveDefaultCollection(default_collection_t *collection)
 {
-#if ORIGCODE
     default_t *defaults;
     int i, v;
     FILE *f;
@@ -1708,7 +1707,6 @@ static void SaveDefaultCollection(default_collection_t *collection)
     }
 
     fclose (f);
-#endif
 }
 
 // Parses integer values in the configuration file
@@ -1770,7 +1768,6 @@ static void SetVariable(default_t *def, char *value)
 
 static void LoadDefaultCollection(default_collection_t *collection)
 {
-#if ORIGCODE
     FILE *f;
     default_t *def;
     char defname[80];
@@ -1828,7 +1825,6 @@ static void LoadDefaultCollection(default_collection_t *collection)
     }
 
     fclose (f);
-#endif
 }
 
 // Set the default filenames to use for configuration files.
@@ -2089,9 +2085,6 @@ void M_SetConfigDir(char *dir)
 char *M_GetSaveGameDir(char *iwadname)
 {
     char *savegamedir;
-#if ORIGCODE
-    char *topdir;
-#endif
 
     // If not "doing" a configuration directory (Windows), don't "do"
     // a savegame directory, either.
@@ -2102,27 +2095,61 @@ char *M_GetSaveGameDir(char *iwadname)
     }
     else
     {
-#if ORIGCODE
-        // ~/.chocolate-doom/savegames
-
-        topdir = M_StringJoin(configdir, "savegame", NULL);
+        char *topdir = M_StringJoin(configdir, DIR_SEPARATOR_S, "savegames", NULL);
         M_MakeDirectory(topdir);
 
-        // eg. ~/.chocolate-doom/savegames/doom2.wad/
+        // Extract clean basename from iwadname
+        const char *clean_iwad = iwadname;
+        if (clean_iwad)
+        {
+            const char *slash = strrchr(clean_iwad, DIR_SEPARATOR);
+            if (slash) clean_iwad = slash + 1;
+        }
+        if (!clean_iwad || !clean_iwad[0])
+        {
+            clean_iwad = "doom1.wad";
+        }
 
-        savegamedir = M_StringJoin(topdir, DIR_SEPARATOR_S, iwadname,
-                                   DIR_SEPARATOR_S, NULL);
-
+        savegamedir = M_StringJoin(topdir, DIR_SEPARATOR_S, clean_iwad, DIR_SEPARATOR_S, NULL);
         M_MakeDirectory(savegamedir);
 
+        // Migrate any legacy un-namespaced saves from configdir/.savegame/ if target has none yet
+        char *legacy_dir = M_StringJoin(configdir, DIR_SEPARATOR_S, ".savegame", DIR_SEPARATOR_S, NULL);
+        for (int slot = 0; slot < 6; ++slot)
+        {
+            char legacy_file[512];
+            char target_file[512];
+            snprintf(legacy_file, sizeof(legacy_file), "%sdoomsav%d.dsg", legacy_dir, slot);
+            snprintf(target_file, sizeof(target_file), "%sdoomsav%d.dsg", savegamedir, slot);
+            FILE *tf = fopen(target_file, "rb");
+            if (!tf)
+            {
+                FILE *lf = fopen(legacy_file, "rb");
+                if (lf)
+                {
+                    FILE *dest = fopen(target_file, "wb");
+                    if (dest)
+                    {
+                        char buf[4096];
+                        size_t n;
+                        while ((n = fread(buf, 1, sizeof(buf), lf)) > 0)
+                        {
+                            fwrite(buf, 1, n, dest);
+                        }
+                        fclose(dest);
+                    }
+                    fclose(lf);
+                }
+            }
+            else
+            {
+                fclose(tf);
+            }
+        }
+        free(legacy_dir);
         free(topdir);
-#else
-        savegamedir = M_StringJoin(configdir, DIR_SEPARATOR_S, ".savegame/", NULL);
-
-        M_MakeDirectory(savegamedir);
 
         printf ("Using %s for savegames\n", savegamedir);
-#endif
     }
 
     return savegamedir;

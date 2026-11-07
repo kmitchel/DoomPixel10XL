@@ -15,6 +15,7 @@
 
 #define LOG_TAG "DoomJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 static JavaVM* g_vm = nullptr;
@@ -38,7 +39,13 @@ static float g_analogStrafe = 0.0f;
 static float g_analogTurn = 0.0f;
 
 extern "C" int g_aiUpscaleMode;
-static int g_currentWindowScale = 0;
+static std::atomic<int> s_pendingUpscaleMode{2};
+static int g_currentWindowScale = -1;
+
+extern "C" void R_SyncFrameUpscaleMode(void)
+{
+    g_aiUpscaleMode = s_pendingUpscaleMode.load(std::memory_order_relaxed);
+}
 
 // Fast SWAR 50/50 and 75/25 32-bit RGBA color blending
 static inline uint32_t Blend50(uint32_t c1, uint32_t c2)
@@ -267,6 +274,18 @@ static void* GameThreadFunc(void* /*arg*/)
 {
     LOGI("Starting DOOM engine game thread with IWAD: %s", g_wadPath.c_str());
 
+    if (access(g_wadPath.c_str(), R_OK) != 0) {
+        LOGE("WAD file does not exist or is not readable: %s", g_wadPath.c_str());
+        size_t lastSlash = g_wadPath.find_last_of('/');
+        if (lastSlash != std::string::npos) {
+            std::string fallbackPath = g_wadPath.substr(0, lastSlash + 1) + "doom1.wad";
+            if (access(fallbackPath.c_str(), R_OK) == 0) {
+                LOGW("Falling back to bundled IWAD: %s", fallbackPath.c_str());
+                g_wadPath = fallbackPath;
+            }
+        }
+    }
+
     if (!g_saveDir.empty()) {
         chdir(g_saveDir.c_str());
     }
@@ -345,13 +364,12 @@ Java_com_id_doom_DoomBridge_nativeSetSurface(JNIEnv* env, jclass /*clazz*/, jobj
         ANativeWindow_release(g_window);
         g_window = nullptr;
     }
+    g_currentWindowScale = -1;
 
     if (surface) {
         g_window = ANativeWindow_fromSurface(env, surface);
         if (g_window) {
-            // Configure 640x400 buffer; hardware scaler stretches into 4:3 DoomSurfaceView
-            ANativeWindow_setBuffersGeometry(g_window, DOOMGENERIC_RESX, DOOMGENERIC_RESY, WINDOW_FORMAT_RGBA_8888);
-            LOGI("Surface configured with geometry %dx%d RGBA_8888 for 4:3 SurfaceView", DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+            LOGI("Surface attached for 4:3 SurfaceView");
         }
     }
     pthread_mutex_unlock(&g_windowMutex);
@@ -365,6 +383,7 @@ Java_com_id_doom_DoomBridge_nativeSurfaceDestroyed(JNIEnv* /*env*/, jclass /*cla
         ANativeWindow_release(g_window);
         g_window = nullptr;
     }
+    g_currentWindowScale = -1;
     pthread_mutex_unlock(&g_windowMutex);
 }
 
@@ -495,14 +514,14 @@ Java_com_id_doom_DoomBridge_nativeSetUpscaleMode(JNIEnv* /*env*/, jclass /*clazz
     int m = static_cast<int>(mode);
     if (m < 0) m = 0;
     if (m > 2) m = 2;
-    g_aiUpscaleMode = m;
+    s_pendingUpscaleMode.store(m, std::memory_order_relaxed);
     Android_TriggerCheat(100 + m);
 }
 
 JNIEXPORT jint JNICALL
 Java_com_id_doom_DoomBridge_nativeGetUpscaleMode(JNIEnv* /*env*/, jclass /*clazz*/)
 {
-    return static_cast<jint>(g_aiUpscaleMode);
+    return static_cast<jint>(s_pendingUpscaleMode.load(std::memory_order_relaxed));
 }
 
 extern "C" int Android_ComputeUiStateMask(void);

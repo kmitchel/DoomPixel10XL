@@ -534,7 +534,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
 
         // 2. Version Watermark
         canvas.drawRoundRect(rectVersion, 6f * density, 6f * density, paintBtnFill)
-        canvas.drawText("DOOM v1.3.2 • 4:3 AI-HD (Pixel 10 XL)", rectVersion.centerX(), rectVersion.centerY() + (3.5f * density), paintTextVersion)
+        canvas.drawText("DOOM v1.3.3 • 4:3 AI-HD (Pixel 10 XL)", rectVersion.centerX(), rectVersion.centerY() + (3.5f * density), paintTextVersion)
 
         // 3. Top Utility Buttons (Only drawn when DOOM is listening for them)
         if (!rectEsc.isEmpty) {

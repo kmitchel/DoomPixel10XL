@@ -12,7 +12,10 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,13 +37,35 @@ class DoomActivity : ComponentActivity() {
     // Storage Access Framework contract to import external IWADs/PWADs (DOOM.WAD, DOOM2.WAD, etc.)
     private val openWadLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
-            val rawName = it.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':') ?: "custom.wad"
-            val importedPath = wadManager.importCustomWad(it, rawName)
+            val displayName = queryDisplayName(it)
+            val importedPath = wadManager.importCustomWad(it, displayName)
             if (importedPath != null) {
                 Log.i(TAG, "Imported WAD path: $importedPath — restarting engine")
                 restartWithSelectedWad()
+            } else {
+                Toast.makeText(this, "Failed to import WAD: file is not a valid DOOM WAD (must start with IWAD or PWAD)", Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    private fun queryDisplayName(uri: Uri): String {
+        var name: String? = null
+        try {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0) {
+                        name = cursor.getString(index)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not resolve DISPLAY_NAME for $uri", e)
+        }
+        if (name.isNullOrBlank()) {
+            name = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':')
+        }
+        return name?.takeIf { it.isNotBlank() } ?: "custom.wad"
     }
 
     private fun restartWithSelectedWad() {
