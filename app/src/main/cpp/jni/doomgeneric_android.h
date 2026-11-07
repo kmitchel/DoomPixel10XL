@@ -10,6 +10,7 @@ extern "C" {
 
 // Thread-safe key queue management
 void Android_QueueKey(int pressed, unsigned char doomKey);
+void Android_ReleaseHeldKeys(void);
 
 // Surface blit callback called from DG_DrawFrame
 void Android_BlitFrame(const uint32_t* screenBuffer, int width, int height);

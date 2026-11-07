@@ -436,7 +436,10 @@ static aaudio_data_callback_result_t DoomAudioDataCallback(
         return AAUDIO_CALLBACK_RESULT_CONTINUE;
     }
 
-    pthread_mutex_lock(&g_audioMutex);
+    if (pthread_mutex_trylock(&g_audioMutex) != 0) {
+        std::memset(out, 0, sizeof(int16_t) * 2 * numFrames);
+        return AAUDIO_CALLBACK_RESULT_CONTINUE;
+    }
 
     for (int32_t frame = 0; frame < numFrames; ++frame) {
         float musL = 0.0f;

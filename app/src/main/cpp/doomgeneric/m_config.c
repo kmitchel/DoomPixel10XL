@@ -2137,148 +2137,180 @@ char *M_GetSaveGameDir(char *iwadname)
         M_MakeDirectory(savegamedir);
 
         // 1. Quarantine ambiguous v1.3.3 saves from savegames/doom.wad/ to savegames/_recovered_v133/
-        char *v133_dir = M_StringJoin(topdir, DIR_SEPARATOR_S, "doom.wad", DIR_SEPARATOR_S, NULL);
-        char *quarantine_dir = M_StringJoin(topdir, DIR_SEPARATOR_S, "_recovered_v133", DIR_SEPARATOR_S, NULL);
-        char *quarantine_marker = M_StringJoin(topdir, DIR_SEPARATOR_S, ".v136_quarantine_done", NULL);
-
-        FILE *qf = fopen(quarantine_marker, "rb");
-        if (!qf)
+        // Skip when active IWAD is actually doom.wad so live saves are not duplicated into quarantine.
+        if (strcasecmp(clean_iwad, "doom.wad") != 0)
         {
-            int quarantined_count = 0;
-            for (int slot = 0; slot < 6; ++slot)
+            char *v133_dir = M_StringJoin(topdir, DIR_SEPARATOR_S, "doom.wad", DIR_SEPARATOR_S, NULL);
+            char *quarantine_dir = M_StringJoin(topdir, DIR_SEPARATOR_S, "_recovered_v133", DIR_SEPARATOR_S, NULL);
+            char *quarantine_marker = M_StringJoin(topdir, DIR_SEPARATOR_S, ".v136_quarantine_done", NULL);
+
+            FILE *qf = fopen(quarantine_marker, "rb");
+            if (!qf)
             {
-                char v133_file[512];
-                char q_file[512];
-                snprintf(v133_file, sizeof(v133_file), "%sdoomsav%d.dsg", v133_dir, slot);
-                snprintf(q_file, sizeof(q_file), "%sdoomsav%d.dsg", quarantine_dir, slot);
-
-                FILE *src = fopen(v133_file, "rb");
-                if (src)
-                {
-                    M_MakeDirectory(quarantine_dir);
-                    char tmp_q[512];
-                    snprintf(tmp_q, sizeof(tmp_q), "%s.tmp", q_file);
-                    FILE *dest = fopen(tmp_q, "wb");
-                    if (dest)
-                    {
-                        char buf[4096];
-                        size_t n;
-                        while ((n = fread(buf, 1, sizeof(buf), src)) > 0)
-                        {
-                            fwrite(buf, 1, n, dest);
-                        }
-                        fflush(dest);
-                        fclose(dest);
-                        if (rename(tmp_q, q_file) == 0)
-                        {
-                            quarantined_count++;
-                        }
-                        else
-                        {
-                            remove(tmp_q);
-                        }
-                    }
-                    fclose(src);
-                }
-            }
-
-            if (quarantined_count > 0)
-            {
-                char readme_file[512];
-                snprintf(readme_file, sizeof(readme_file), "%sREADME.txt", quarantine_dir);
-                FILE *rm = fopen(readme_file, "w");
-                if (rm)
-                {
-                    fprintf(rm, "Saves recovered from v1.3.3 (savegames/doom.wad/).\n"
-                                "In v1.3.3, all DOOM mission saves were grouped together under doom.wad.\n"
-                                "These saves are preserved here to prevent mis-attribution to shareware or custom IWADs.\n");
-                    fclose(rm);
-                }
-            }
-
-            FILE *qw = fopen(quarantine_marker, "w");
-            if (qw)
-            {
-                fprintf(qw, "quarantined %d saves\n", quarantined_count);
-                fclose(qw);
-            }
-        }
-        else
-        {
-            fclose(qf);
-        }
-        free(quarantine_marker);
-        free(quarantine_dir);
-        free(v133_dir);
-
-        // 2. Migrate legacy un-namespaced saves (.savegame/) into doom1.wad
-        char *legacy_marker = M_StringJoin(topdir, DIR_SEPARATOR_S, ".v134_savegames_migrated", NULL);
-        FILE *mf = fopen(legacy_marker, "rb");
-        if (!mf)
-        {
-            if (!strcasecmp(clean_iwad, "doom1.wad"))
-            {
-                char *legacy_dir = M_StringJoin(configdir, DIR_SEPARATOR_S, ".savegame", DIR_SEPARATOR_S, NULL);
-                int migrated_count = 0;
-
+                int found_count = 0;
+                int quarantined_count = 0;
                 for (int slot = 0; slot < 6; ++slot)
                 {
-                    char target_file[512];
-                    char legacy_file[512];
-                    snprintf(target_file, sizeof(target_file), "%sdoomsav%d.dsg", savegamedir, slot);
-                    snprintf(legacy_file, sizeof(legacy_file), "%sdoomsav%d.dsg", legacy_dir, slot);
+                    char v133_file[512];
+                    char q_file[512];
+                    snprintf(v133_file, sizeof(v133_file), "%sdoomsav%d.dsg", v133_dir, slot);
+                    snprintf(q_file, sizeof(q_file), "%sdoomsav%d.dsg", quarantine_dir, slot);
 
-                    FILE *tf = fopen(target_file, "rb");
-                    if (tf)
+                    FILE *src = fopen(v133_file, "rb");
+                    if (src)
                     {
-                        fclose(tf);
-                        continue;
-                    }
-
-                    FILE *lf = fopen(legacy_file, "rb");
-                    if (lf)
-                    {
-                        char tmp_target[512];
-                        snprintf(tmp_target, sizeof(tmp_target), "%s.tmp", target_file);
-                        FILE *dest = fopen(tmp_target, "wb");
+                        found_count++;
+                        M_MakeDirectory(quarantine_dir);
+                        char tmp_q[512];
+                        snprintf(tmp_q, sizeof(tmp_q), "%s.tmp", q_file);
+                        FILE *dest = fopen(tmp_q, "wb");
                         if (dest)
                         {
                             char buf[4096];
                             size_t n;
-                            while ((n = fread(buf, 1, sizeof(buf), lf)) > 0)
+                            int write_err = 0;
+                            while ((n = fread(buf, 1, sizeof(buf), src)) > 0)
                             {
-                                fwrite(buf, 1, n, dest);
+                                if (fwrite(buf, 1, n, dest) != n)
+                                {
+                                    write_err = 1;
+                                    break;
+                                }
                             }
-                            fflush(dest);
+                            if (fflush(dest) != 0) write_err = 1;
                             fclose(dest);
-                            if (rename(tmp_target, target_file) == 0)
+                            if (!write_err && rename(tmp_q, q_file) == 0)
                             {
-                                migrated_count++;
+                                quarantined_count++;
                             }
                             else
                             {
-                                remove(tmp_target);
+                                remove(tmp_q);
                             }
                         }
-                        fclose(lf);
+                        fclose(src);
                     }
                 }
-                free(legacy_dir);
-            }
 
-            // Always write completion marker so fresh installs and migrations only run once
-            FILE *mw = fopen(legacy_marker, "w");
-            if (mw)
-            {
-                fprintf(mw, "migration checked\n");
-                fclose(mw);
+                if (quarantined_count > 0)
+                {
+                    char readme_file[512];
+                    snprintf(readme_file, sizeof(readme_file), "%sREADME.txt", quarantine_dir);
+                    FILE *rm = fopen(readme_file, "w");
+                    if (rm)
+                    {
+                        fprintf(rm, "Saves recovered from v1.3.3 (savegames/doom.wad/).\n"
+                                    "In v1.3.3, all DOOM mission saves were grouped together under doom.wad.\n"
+                                    "Use the in-game WAD & Save Recovery dialog to restore these slots to your chosen IWAD.\n");
+                        fclose(rm);
+                    }
+                }
+
+                if (quarantined_count == found_count)
+                {
+                    FILE *qw = fopen(quarantine_marker, "w");
+                    if (qw)
+                    {
+                        fprintf(qw, "quarantined %d of %d saves\n", quarantined_count, found_count);
+                        fclose(qw);
+                    }
+                }
             }
+            else
+            {
+                fclose(qf);
+            }
+            free(quarantine_marker);
+            free(quarantine_dir);
+            free(v133_dir);
         }
-        else
+
+        // 2. Quarantine ambiguous pre-v1.3.3 un-namespaced saves (.savegame/) to savegames/_recovered_pre133/
         {
-            fclose(mf);
+            char *legacy_dir = M_StringJoin(configdir, DIR_SEPARATOR_S, ".savegame", DIR_SEPARATOR_S, NULL);
+            char *pre133_dir = M_StringJoin(topdir, DIR_SEPARATOR_S, "_recovered_pre133", DIR_SEPARATOR_S, NULL);
+            char *pre133_marker = M_StringJoin(topdir, DIR_SEPARATOR_S, ".v137_pre133_quarantine_done", NULL);
+
+            FILE *pf = fopen(pre133_marker, "rb");
+            if (!pf)
+            {
+                int found_count = 0;
+                int quarantined_count = 0;
+                for (int slot = 0; slot < 6; ++slot)
+                {
+                    char legacy_file[512];
+                    char q_file[512];
+                    snprintf(legacy_file, sizeof(legacy_file), "%sdoomsav%d.dsg", legacy_dir, slot);
+                    snprintf(q_file, sizeof(q_file), "%sdoomsav%d.dsg", pre133_dir, slot);
+
+                    FILE *src = fopen(legacy_file, "rb");
+                    if (src)
+                    {
+                        found_count++;
+                        M_MakeDirectory(pre133_dir);
+                        char tmp_q[512];
+                        snprintf(tmp_q, sizeof(tmp_q), "%s.tmp", q_file);
+                        FILE *dest = fopen(tmp_q, "wb");
+                        if (dest)
+                        {
+                            char buf[4096];
+                            size_t n;
+                            int write_err = 0;
+                            while ((n = fread(buf, 1, sizeof(buf), src)) > 0)
+                            {
+                                if (fwrite(buf, 1, n, dest) != n)
+                                {
+                                    write_err = 1;
+                                    break;
+                                }
+                            }
+                            if (fflush(dest) != 0) write_err = 1;
+                            fclose(dest);
+                            if (!write_err && rename(tmp_q, q_file) == 0)
+                            {
+                                quarantined_count++;
+                            }
+                            else
+                            {
+                                remove(tmp_q);
+                            }
+                        }
+                        fclose(src);
+                    }
+                }
+
+                if (quarantined_count > 0)
+                {
+                    char readme_file[512];
+                    snprintf(readme_file, sizeof(readme_file), "%sREADME.txt", pre133_dir);
+                    FILE *rm = fopen(readme_file, "w");
+                    if (rm)
+                    {
+                        fprintf(rm, "Saves recovered from pre-v1.3.3 (.savegame/).\n"
+                                    "Prior to v1.3.3, all IWADs shared a single un-namespaced .savegame directory.\n"
+                                    "Use the in-game WAD & Save Recovery dialog to restore these slots to your chosen IWAD.\n");
+                        fclose(rm);
+                    }
+                }
+
+                if (quarantined_count == found_count)
+                {
+                    FILE *pw = fopen(pre133_marker, "w");
+                    if (pw)
+                    {
+                        fprintf(pw, "quarantined %d of %d saves\n", quarantined_count, found_count);
+                        fclose(pw);
+                    }
+                }
+            }
+            else
+            {
+                fclose(pf);
+            }
+            free(pre133_marker);
+            free(pre133_dir);
+            free(legacy_dir);
         }
-        free(legacy_marker);
         free(topdir);
 
         printf ("Using %s for savegames\n", savegamedir);

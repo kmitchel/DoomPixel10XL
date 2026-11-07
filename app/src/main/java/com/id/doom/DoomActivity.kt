@@ -34,6 +34,20 @@ class DoomActivity : ComponentActivity() {
     private lateinit var hapticsManager: PixelHapticsManager
     private lateinit var wadManager: WadManager
 
+    private var pendingExportSaveFile: java.io.File? = null
+
+    private val exportSaveLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val fileToExport = pendingExportSaveFile
+        pendingExportSaveFile = null
+        if (uri != null && fileToExport != null) {
+            if (wadManager.exportSaveToUri(fileToExport, uri)) {
+                Toast.makeText(this, "Exported ${fileToExport.name} successfully", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Failed to export save file", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     // Storage Access Framework contract to import external IWADs/PWADs (DOOM.WAD, DOOM2.WAD, etc.)
     private val openWadLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
@@ -82,23 +96,131 @@ class DoomActivity : ComponentActivity() {
     private fun showWadSelectorDialog() {
         val installed = wadManager.listInstalledWads()
         val activeName = wadManager.getActiveWadName()
+        val quarantined = wadManager.listQuarantinedSaves()
         val options = installed.map { file ->
             val mark = if (file.name.equals(activeName, ignoreCase = true)) " ✔ (Active)" else ""
             "${file.name}$mark"
         }.toMutableList()
+        val importIndex = options.size
         options.add("＋ Import .WAD File (DOOM.WAD / DOOM2.WAD)...")
+        val recoveryIndex = options.size
+        val recCountLabel = if (quarantined.isNotEmpty()) " (${quarantined.size} found)" else ""
+        options.add("📦 Recovered Saves Browser / Restore$recCountLabel...")
 
         android.app.AlertDialog.Builder(this)
             .setTitle("Select or Import DOOM WAD")
             .setItems(options.toTypedArray()) { _, which ->
-                if (which < installed.size) {
-                    val chosen = installed[which]
-                    if (!chosen.name.equals(activeName, ignoreCase = true)) {
-                        wadManager.setActiveWadName(chosen.name)
-                        restartWithSelectedWad()
+                when {
+                    which < installed.size -> {
+                        val chosen = installed[which]
+                        if (!chosen.name.equals(activeName, ignoreCase = true)) {
+                            wadManager.setActiveWadName(chosen.name)
+                            restartWithSelectedWad()
+                        }
                     }
+                    which == importIndex -> openWadLauncher.launch(arrayOf("*/*"))
+                    which == recoveryIndex -> showQuarantinedSavesDialog()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showQuarantinedSavesDialog() {
+        val quarantined = wadManager.listQuarantinedSaves()
+        if (quarantined.isEmpty()) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Recovered Saves")
+                .setMessage("No quarantined saves found in _recovered_v133 or _recovered_pre133.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
+        val labels = quarantined.map { item ->
+            "Slot ${item.slotIndex}: \"${item.description}\" [${item.sourceBucket}]"
+        }.toTypedArray()
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Select Recovered Save Slot")
+            .setItems(labels) { _, idx ->
+                val selected = quarantined[idx]
+                showRecoveredSaveActionDialog(selected)
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun showRecoveredSaveActionDialog(item: WadManager.QuarantinedSaveSlot) {
+        val actions = arrayOf(
+            "Restore to an IWAD Save Slot...",
+            "Export Save File (.dsg) via Files..."
+        )
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Slot ${item.slotIndex}: \"${item.description}\"")
+            .setItems(actions) { _, which ->
+                if (which == 0) {
+                    showSelectTargetWadForRestoreDialog(item)
                 } else {
-                    openWadLauncher.launch(arrayOf("*/*"))
+                    pendingExportSaveFile = item.file
+                    exportSaveLauncher.launch("doomsav${item.slotIndex}_${item.description.replace(Regex("[^a-zA-Z0-9_-]"), "_")}.dsg")
+                }
+            }
+            .setNegativeButton("Back") { _, _ -> showQuarantinedSavesDialog() }
+            .show()
+    }
+
+    private fun showSelectTargetWadForRestoreDialog(item: WadManager.QuarantinedSaveSlot) {
+        val installed = wadManager.listInstalledWads()
+        val activeName = wadManager.getActiveWadName()
+        val wadNames = installed.map { it.name }
+        val labels = wadNames.map { name ->
+            if (name.equals(activeName, ignoreCase = true)) "$name (Active)" else name
+        }.toTypedArray()
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Choose Destination IWAD")
+            .setItems(labels) { _, wIdx ->
+                val targetWad = wadNames[wIdx]
+                showSelectTargetSlotForRestoreDialog(item, targetWad)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showSelectTargetSlotForRestoreDialog(item: WadManager.QuarantinedSaveSlot, targetWad: String) {
+        val slotLabels = (0..5).map { slot ->
+            val existing = wadManager.getTargetSaveFile(targetWad, slot)
+            val status = if (existing.exists()) "(Occupied)" else "(Empty)"
+            val rec = if (slot == item.slotIndex) " ★Original Slot" else ""
+            "Slot $slot $status$rec"
+        }.toTypedArray()
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Restore to $targetWad")
+            .setItems(slotLabels) { _, targetSlot ->
+                val destFile = wadManager.getTargetSaveFile(targetWad, targetSlot)
+                if (destFile.exists()) {
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle("Slot $targetSlot Already Occupied")
+                        .setMessage("Target $targetWad already has a save in Slot $targetSlot. Overwrite it (a .bak backup of the current slot will be preserved alongside the quarantined original)?")
+                        .setPositiveButton("Backup & Overwrite") { _, _ ->
+                            val ok = wadManager.restoreQuarantinedSave(item, targetWad, targetSlot, backupExisting = true)
+                            if (ok) {
+                                Toast.makeText(this, "Restored to $targetWad Slot $targetSlot (previous slot backed up)", Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(this, "Failed to restore save slot", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                } else {
+                    val ok = wadManager.restoreQuarantinedSave(item, targetWad, targetSlot, backupExisting = false)
+                    if (ok) {
+                        Toast.makeText(this, "Restored to $targetWad Slot $targetSlot", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(this, "Failed to restore save slot", Toast.LENGTH_LONG).show()
+                    }
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -144,7 +266,7 @@ class DoomActivity : ComponentActivity() {
         wadManager = WadManager(this)
         val iwadPath = if (recoveryPrefs.getBoolean("crashed_on_boot", false)) {
             Log.w(TAG, "Previous launch detected native crash. Restoring pristine bundled doom1.wad.")
-            recoveryPrefs.edit().putBoolean("crashed_on_boot", false).apply()
+            recoveryPrefs.edit().putBoolean("crashed_on_boot", false).commit()
             wadManager.forceRestoreDefaultWad()
         } else {
             wadManager.setupDefaultWad()
@@ -181,19 +303,24 @@ class DoomActivity : ComponentActivity() {
         DoomBridge.firstFrameListener = { frameSession ->
             runOnUiThread {
                 Log.i(TAG, "Native engine rendered first frame successfully for session $frameSession — disarming crash guard")
-                recoveryPrefs.edit().putBoolean("crashed_on_boot", false).apply()
+                recoveryPrefs.edit().putBoolean("crashed_on_boot", false).commit()
             }
         }
 
-        // 6. Launch native engine thread with session-scoped crash guard
+        // 6. Two-phase session-scoped crash guard:
+        // Phase 1: Query whether nativeInit will start a new thread (>0) or reconnect to a running one (0).
+        // Durably persist crashed_on_boot = true via synchronous commit() BEFORE spawning the native thread.
         Log.i(TAG, "Initializing DOOM engine with IWAD: $iwadPath")
-        val sessionId = DoomBridge.nativeInit(iwadPath, wadManager.saveDirectory.absolutePath)
-        if (sessionId > 0) {
-            Log.i(TAG, "Spawned new DOOM engine thread (session $sessionId) — arming crash guard")
-            recoveryPrefs.edit().putBoolean("crashed_on_boot", true).apply()
+        val preparedSession = DoomBridge.nativePrepareInit()
+        if (preparedSession > 0) {
+            Log.i(TAG, "Durably arming crash guard for new DOOM engine session $preparedSession before thread start")
+            recoveryPrefs.edit().putBoolean("crashed_on_boot", true).commit()
         } else {
-            Log.i(TAG, "Reconnected to existing running DOOM engine thread — crash guard remains disarmed")
+            Log.i(TAG, "Reconnecting to existing running DOOM engine thread — crash guard remains disarmed")
         }
+
+        // Phase 2: Spawn or resume the native engine thread
+        DoomBridge.nativeInit(iwadPath, wadManager.saveDirectory.absolutePath)
     }
 
     override fun onResume() {

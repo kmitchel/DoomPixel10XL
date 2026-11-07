@@ -418,9 +418,10 @@ void R_DrawPlanes (void)
 	{
 	    extern int g_aiUpscaleMode;
 	    extern byte *R_GetUpscaledFlat(int flatnum);
-	    if (g_aiUpscaleMode > 0)
+	    if (g_aiUpscaleMode > 0 && !detailshift)
 	    {
 		ds_source = R_GetUpscaledFlat(flattranslation[pl->picnum]);
+		Z_ChangeTag(ds_source, PU_STATIC);
 	    }
 	    else
 	    {
@@ -454,7 +455,11 @@ void R_DrawPlanes (void)
 	
 	{
 	    extern int g_aiUpscaleMode;
-	    if (g_aiUpscaleMode == 0)
+	    if (g_aiUpscaleMode > 0 && !detailshift)
+	    {
+		Z_ChangeTag(ds_source, PU_CACHE);
+	    }
+	    else
 	    {
 		W_ReleaseLumpNum(lumpnum);
 	    }

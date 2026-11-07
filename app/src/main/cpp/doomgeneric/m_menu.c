@@ -2197,7 +2197,7 @@ static void M_ExecuteCheatOnGameThread(int cheatId)
 
 void Android_TriggerCheat(int cheatId)
 {
-    s_pendingCheatId = cheatId;
+    __atomic_store_n(&s_pendingCheatId, cheatId, __ATOMIC_RELEASE);
 }
 
 static void M_ProcessTouchOnGameThread(int x, int y)
@@ -2349,27 +2349,25 @@ void M_Ticker (void)
 	skullAnimCounter = 8;
     }
 
-    if (s_pendingCheatId >= 0)
+    int cid = __atomic_exchange_n(&s_pendingCheatId, -1, __ATOMIC_ACQ_REL);
+    if (cid >= 0)
     {
-        int cid = s_pendingCheatId;
-        s_pendingCheatId = -1;
         M_ExecuteCheatOnGameThread(cid);
     }
 
-    if (s_touchPending)
+    if (__atomic_exchange_n(&s_touchPending, 0, __ATOMIC_ACQ_REL))
     {
-        int tx = s_touchX;
-        int ty = s_touchY;
-        s_touchPending = 0;
+        int tx = __atomic_load_n(&s_touchX, __ATOMIC_RELAXED);
+        int ty = __atomic_load_n(&s_touchY, __ATOMIC_RELAXED);
         M_ProcessTouchOnGameThread(tx, ty);
     }
 }
 
 void M_TouchAt(int x, int y)
 {
-    s_touchX = x;
-    s_touchY = y;
-    s_touchPending = 1;
+    __atomic_store_n(&s_touchX, x, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_touchY, y, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_touchPending, 1, __ATOMIC_RELEASE);
 }
 
 int Android_ComputeUiStateMask(void)

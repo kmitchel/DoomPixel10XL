@@ -1100,16 +1100,20 @@ byte *R_GetUpscaledFlat (int flatnum)
         return upscaled_flats[flatnum];
     }
 
-    src64 = (byte *)W_CacheLumpNum(firstflat + flatnum, PU_CACHE);
+    // Pin source lump as PU_STATIC before allocating work buffers so Z_Malloc cannot purge src64
+    src64 = (byte *)W_CacheLumpNum(firstflat + flatnum, PU_STATIC);
     mid128 = (byte *)Z_Malloc(128 * 128, PU_STATIC, NULL);
-    dst256 = (byte *)Z_Malloc(256 * 256, PU_STATIC, NULL);
+    dst256 = (byte *)Z_Malloc(256 * 256, PU_STATIC, &upscaled_flats[flatnum]);
 
     // 2-stage edge-directed super-resolution: 64x64 -> 128x128 -> 256x256
     R_UpscaleTile2x(src64, mid128, 64);
-    R_UpscaleTile2x(mid128, dst256, 128);
+    W_ReleaseLumpNum(firstflat + flatnum);
 
+    R_UpscaleTile2x(mid128, dst256, 128);
     Z_Free(mid128);
-    upscaled_flats[flatnum] = dst256;
+
+    // Demote to PU_CACHE so the zone allocator can evict and clear upscaled_flats[flatnum] under pressure
+    Z_ChangeTag(dst256, PU_CACHE);
     return dst256;
 }
 

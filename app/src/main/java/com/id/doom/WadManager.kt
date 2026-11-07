@@ -249,4 +249,119 @@ class WadManager(private val context: Context) {
             null
         }
     }
+
+    data class QuarantinedSaveSlot(
+        val file: File,
+        val sourceBucket: String,
+        val slotIndex: Int,
+        val description: String
+    )
+
+    private fun readSaveDescription(file: File): String {
+        return try {
+            RandomAccessFile(file, "r").use { raf ->
+                val len = minOf(24, raf.length().toInt())
+                if (len <= 0) return "Saved Game"
+                val bytes = ByteArray(len)
+                raf.readFully(bytes)
+                val zeroIdx = bytes.indexOf(0.toByte())
+                val raw = if (zeroIdx >= 0) {
+                    String(bytes, 0, zeroIdx, Charsets.US_ASCII)
+                } else {
+                    String(bytes, Charsets.US_ASCII)
+                }.trim()
+                raw.ifBlank { "Saved Game" }
+            }
+        } catch (e: Exception) {
+            "Saved Game"
+        }
+    }
+
+    /**
+     * Lists all quarantined save slots from _recovered_v133 and _recovered_pre133.
+     */
+    fun listQuarantinedSaves(): List<QuarantinedSaveSlot> {
+        val saveTopDir = File(saveDirectory, "savegames")
+        val buckets = listOf(
+            "_recovered_v133" to "v1.3.3 (doom.wad)",
+            "_recovered_pre133" to "pre-v1.3.3 (.savegame)"
+        )
+        val result = mutableListOf<QuarantinedSaveSlot>()
+        for ((dirName, label) in buckets) {
+            val dir = File(saveTopDir, dirName)
+            if (!dir.exists() || !dir.isDirectory) continue
+            for (slot in 0..5) {
+                val f = File(dir, "doomsav$slot.dsg")
+                if (f.exists() && f.isFile && f.length() >= 24L) {
+                    val desc = readSaveDescription(f)
+                    result.add(QuarantinedSaveSlot(f, label, slot, desc))
+                }
+            }
+        }
+        return result
+    }
+
+    fun getTargetSaveFile(wadName: String, slotIndex: Int): File {
+        val wadSaveDir = File(File(saveDirectory, "savegames"), wadName).apply { if (!exists()) mkdirs() }
+        return File(wadSaveDir, "doomsav$slotIndex.dsg")
+    }
+
+    /**
+     * Restores a quarantined save slot into the chosen IWAD's save directory and slot index,
+     * preserving the quarantined original and optionally backing up any existing destination slot.
+     */
+    fun restoreQuarantinedSave(
+        item: QuarantinedSaveSlot,
+        targetWadName: String,
+        targetSlotIndex: Int,
+        backupExisting: Boolean
+    ): Boolean {
+        return try {
+            val wadSaveDir = File(File(saveDirectory, "savegames"), targetWadName).apply { if (!exists()) mkdirs() }
+            val destFile = File(wadSaveDir, "doomsav$targetSlotIndex.dsg")
+
+            if (destFile.exists() && backupExisting) {
+                val backupFile = File(wadSaveDir, "doomsav$targetSlotIndex.bak_${System.currentTimeMillis()}.dsg")
+                Files.copy(destFile.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+
+            val tmpFile = File(wadSaveDir, "doomsav$targetSlotIndex.dsg.tmp")
+            Files.copy(item.file.toPath(), tmpFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            try {
+                Files.move(
+                    tmpFile.toPath(),
+                    destFile.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE
+                )
+            } catch (e: Exception) {
+                Files.move(
+                    tmpFile.toPath(),
+                    destFile.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING
+                )
+            }
+            Log.i(TAG, "Restored ${item.file.name} (${item.sourceBucket}) -> $targetWadName/doomsav$targetSlotIndex.dsg")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to restore quarantined save", e)
+            false
+        }
+    }
+
+    /**
+     * Exports a save file to a user-chosen document URI via Storage Access Framework.
+     */
+    fun exportSaveToUri(saveFile: File, destUri: Uri): Boolean {
+        return try {
+            context.contentResolver.openOutputStream(destUri)?.use { out ->
+                saveFile.inputStream().use { input ->
+                    input.copyTo(out)
+                }
+            } != null
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to export save ${saveFile.name} to $destUri", e)
+            false
+        }
+    }
 }

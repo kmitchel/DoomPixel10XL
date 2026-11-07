@@ -76,6 +76,7 @@ object DoomBridge {
     }
 
     // Native JNI functions
+    @JvmStatic external fun nativePrepareInit(): Int
     @JvmStatic external fun nativeInit(wadPath: String, saveDir: String): Int
     @JvmStatic external fun nativeSetSurface(surface: Surface)
     @JvmStatic external fun nativeSurfaceDestroyed()

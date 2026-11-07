@@ -37,14 +37,15 @@ static std::string g_wadPath;
 static std::string g_saveDir;
 
 // Virtual analog stick state
-static float g_analogForward = 0.0f;
-static float g_analogStrafe = 0.0f;
-static float g_analogTurn = 0.0f;
+static std::atomic<float> g_analogForward{0.0f};
+static std::atomic<float> g_analogStrafe{0.0f};
+static std::atomic<float> g_analogTurn{0.0f};
 
 extern "C" int g_aiUpscaleMode;
 static std::atomic<int> s_pendingUpscaleMode{2};
 static int g_currentWindowScale = -1;
 static std::atomic<bool> s_pendingConfigSave{false};
+static std::atomic<int> s_cachedUiStateMask{1}; // Default bit 0 (MENU) enabled
 
 extern "C" void R_SyncFrameUpscaleMode(void)
 {
@@ -299,6 +300,8 @@ extern "C" void Android_OnQuit(void)
 
 extern "C" int joybspeed;
 extern "C" void M_SaveDefaults(void);
+extern "C" int Android_ComputeUiStateMask(void);
+extern "C" void I_GetEvent(void);
 
 // Background Game Loop
 static void* GameThreadFunc(void* /*arg*/)
@@ -335,6 +338,7 @@ static void* GameThreadFunc(void* /*arg*/)
 
     doomgeneric_Create(argc, argv.data());
     joybspeed = 29; // Enable proportional full-speed analog range by default
+    s_cachedUiStateMask.store(Android_ComputeUiStateMask(), std::memory_order_release);
 
     g_gameRunning = true;
     while (g_gameRunning) {
@@ -342,10 +346,13 @@ static void* GameThreadFunc(void* /*arg*/)
             M_SaveDefaults();
         }
         if (g_gamePaused) {
+            // Drain input queue while paused so keys never get stuck across pause/resume
+            I_GetEvent();
             usleep(16000);
             continue;
         }
         doomgeneric_Tick();
+        s_cachedUiStateMask.store(Android_ComputeUiStateMask(), std::memory_order_release);
     }
 
     LOGI("DOOM engine game thread stopped");
@@ -371,6 +378,19 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /*reserved*/)
     }
 
     return JNI_VERSION_1_6;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_id_doom_DoomBridge_nativePrepareInit(JNIEnv* /*env*/, jclass /*clazz*/)
+{
+    if (g_threadStarted.load(std::memory_order_acquire)) {
+        g_gamePaused = false;
+        LOGI("nativePrepareInit: DOOM engine already running — resuming session %d", s_engineSessionId.load());
+        return 0; // 0 indicates reconnecting to an existing running engine session
+    }
+    int nextSession = s_engineSessionId.load(std::memory_order_relaxed) + 1;
+    LOGI("nativePrepareInit: prepared new engine session %d", nextSession);
+    return static_cast<jint>(nextSession);
 }
 
 JNIEXPORT jint JNICALL
@@ -452,24 +472,27 @@ extern "C" void Android_GetAnalogMove(float* outForward, float* outStrafe, float
         return;
     }
     float sensScale = 0.55f + (static_cast<float>(mouseSensitivity) * 0.09f);
-    *outForward = g_analogForward;
-    *outStrafe = g_analogStrafe;
-    *outTurn = g_analogTurn * sensScale;
+    *outForward = g_analogForward.load(std::memory_order_relaxed);
+    *outStrafe = g_analogStrafe.load(std::memory_order_relaxed);
+    *outTurn = g_analogTurn.load(std::memory_order_relaxed) * sensScale;
 }
 
 JNIEXPORT void JNICALL
 Java_com_id_doom_DoomBridge_nativeSendAnalog(JNIEnv* /*env*/, jclass /*clazz*/, jfloat forward, jfloat strafe, jfloat turn)
 {
-    g_analogForward = forward;
-    g_analogStrafe = strafe;
-    g_analogTurn = turn;
+    g_analogForward.store(forward, std::memory_order_relaxed);
+    g_analogStrafe.store(strafe, std::memory_order_relaxed);
+    g_analogTurn.store(turn, std::memory_order_relaxed);
 
     static bool forwardPressed = false;
     static bool backwardPressed = false;
     static bool leftPressed = false;
     static bool rightPressed = false;
 
-    bool useArrowKeys = menuactive || (automapactive && !am_is_follow_player());
+    int mask = s_cachedUiStateMask.load(std::memory_order_acquire);
+    bool isMenu = (mask & (1 << 6)) != 0 || (mask & (1 << 3)) != 0;
+    bool isAutomap = (mask & (1 << 5)) != 0;
+    bool useArrowKeys = isMenu || (isAutomap && !am_is_follow_player());
 
     // During active gameplay (!useArrowKeys), movement & turning are driven continuously
     // via Android_GetAnalogMove() in G_BuildTiccmd() — release any menu/map keys cleanly.
@@ -565,28 +588,27 @@ Java_com_id_doom_DoomBridge_nativeGetUpscaleMode(JNIEnv* /*env*/, jclass /*clazz
     return static_cast<jint>(s_pendingUpscaleMode.load(std::memory_order_relaxed));
 }
 
-extern "C" int Android_ComputeUiStateMask(void);
-
 JNIEXPORT jboolean JNICALL
 Java_com_id_doom_DoomBridge_nativeIsMenuActive(JNIEnv* /*env*/, jclass /*clazz*/)
 {
-    return menuactive ? JNI_TRUE : JNI_FALSE;
+    int mask = s_cachedUiStateMask.load(std::memory_order_acquire);
+    return ((mask & (1 << 6)) != 0 || (mask & (1 << 3)) != 0) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_id_doom_DoomBridge_nativeIsPromptActive(JNIEnv* /*env*/, jclass /*clazz*/)
 {
-    return (messageToPrint && messageNeedsInput) ? JNI_TRUE : JNI_FALSE;
+    int mask = s_cachedUiStateMask.load(std::memory_order_acquire);
+    return ((mask & (1 << 3)) != 0) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jint JNICALL
 Java_com_id_doom_DoomBridge_nativeGetUiStateMask(JNIEnv* /*env*/, jclass /*clazz*/)
 {
-    return Android_ComputeUiStateMask();
+    return static_cast<jint>(s_cachedUiStateMask.load(std::memory_order_acquire));
 }
 
 extern "C" void Android_SetAudioPaused(bool paused);
-extern "C" void M_SaveDefaults(void);
 
 JNIEXPORT void JNICALL
 Java_com_id_doom_DoomBridge_nativeSetPaused(JNIEnv* /*env*/, jclass /*clazz*/, jboolean paused)
@@ -594,8 +616,14 @@ Java_com_id_doom_DoomBridge_nativeSetPaused(JNIEnv* /*env*/, jclass /*clazz*/, j
     bool isPaused = (paused == JNI_TRUE);
     g_gamePaused = isPaused;
     Android_SetAudioPaused(isPaused);
-    if (isPaused && g_gameRunning) {
-        s_pendingConfigSave.store(true, std::memory_order_relaxed);
+    if (isPaused) {
+        g_analogForward.store(0.0f, std::memory_order_relaxed);
+        g_analogStrafe.store(0.0f, std::memory_order_relaxed);
+        g_analogTurn.store(0.0f, std::memory_order_relaxed);
+        Android_ReleaseHeldKeys();
+        if (g_gameRunning) {
+            s_pendingConfigSave.store(true, std::memory_order_relaxed);
+        }
     }
 }
 
@@ -604,6 +632,10 @@ Java_com_id_doom_DoomBridge_nativeStop(JNIEnv* /*env*/, jclass /*clazz*/)
 {
     g_gamePaused = true;
     Android_SetAudioPaused(true);
+    g_analogForward.store(0.0f, std::memory_order_relaxed);
+    g_analogStrafe.store(0.0f, std::memory_order_relaxed);
+    g_analogTurn.store(0.0f, std::memory_order_relaxed);
+    Android_ReleaseHeldKeys();
     if (g_gameRunning) {
         s_pendingConfigSave.store(true, std::memory_order_relaxed);
         usleep(30000);

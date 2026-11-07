@@ -14,11 +14,12 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-#define KEYQUEUE_SIZE 64
+#define KEYQUEUE_SIZE 256
 
 static unsigned short s_KeyQueue[KEYQUEUE_SIZE];
 static unsigned int s_KeyQueueWriteIndex = 0;
 static unsigned int s_KeyQueueReadIndex = 0;
+static unsigned char s_HeldKeys[256] = {0};
 static pthread_mutex_t s_KeyMutex = PTHREAD_MUTEX_INITIALIZER;
 
 static float s_mouseDeltaX = 0.0f;
@@ -54,9 +55,38 @@ int Android_GetMouseDeltaY(void)
 void Android_QueueKey(int pressed, unsigned char doomKey)
 {
     pthread_mutex_lock(&s_KeyMutex);
-    unsigned short keyData = ((pressed ? 1 : 0) << 8) | (doomKey & 0xFF);
-    s_KeyQueue[s_KeyQueueWriteIndex] = keyData;
-    s_KeyQueueWriteIndex = (s_KeyQueueWriteIndex + 1) % KEYQUEUE_SIZE;
+    unsigned int nextWrite = (s_KeyQueueWriteIndex + 1) % KEYQUEUE_SIZE;
+    if (nextWrite != s_KeyQueueReadIndex) {
+        unsigned short keyData = ((pressed ? 1 : 0) << 8) | (doomKey & 0xFF);
+        s_KeyQueue[s_KeyQueueWriteIndex] = keyData;
+        s_KeyQueueWriteIndex = nextWrite;
+        s_HeldKeys[doomKey] = pressed ? 1 : 0;
+    } else if (!pressed && s_HeldKeys[doomKey]) {
+        // If full, overwrite oldest slot with key release so keys never stick
+        s_KeyQueueReadIndex = (s_KeyQueueReadIndex + 1) % KEYQUEUE_SIZE;
+        unsigned short keyData = (doomKey & 0xFF);
+        s_KeyQueue[s_KeyQueueWriteIndex] = keyData;
+        s_KeyQueueWriteIndex = nextWrite;
+        s_HeldKeys[doomKey] = 0;
+    }
+    pthread_mutex_unlock(&s_KeyMutex);
+}
+
+void Android_ReleaseHeldKeys(void)
+{
+    pthread_mutex_lock(&s_KeyMutex);
+    s_KeyQueueReadIndex = 0;
+    s_KeyQueueWriteIndex = 0;
+    for (int k = 0; k < 256; ++k) {
+        if (s_HeldKeys[k]) {
+            s_HeldKeys[k] = 0;
+            unsigned int nextWrite = (s_KeyQueueWriteIndex + 1) % KEYQUEUE_SIZE;
+            if (nextWrite != s_KeyQueueReadIndex) {
+                s_KeyQueue[s_KeyQueueWriteIndex] = (unsigned short)(k & 0xFF);
+                s_KeyQueueWriteIndex = nextWrite;
+            }
+        }
+    }
     pthread_mutex_unlock(&s_KeyMutex);
 }
 
