@@ -1224,14 +1224,19 @@ void M_SizeDisplay(int choice)
 	}
 	break;
       case 1:
-	if (screenSize < 8)
+	if (screenSize < 7)
 	{
 	    screenblocks++;
 	    screenSize++;
 	}
 	break;
     }
-	
+
+    if (screenblocks > 10)
+        screenblocks = 10;
+    if (screenblocks < 3)
+        screenblocks = 3;
+    screenSize = screenblocks - 3;
 
     R_SetViewSize (screenblocks, detailLevel);
 }
@@ -1652,6 +1657,7 @@ boolean M_Responder (event_t* ev)
     // Other F-keys remain gameplay shortcuts.
     if (!menuactive)
     {
+#ifndef __ANDROID__
 	if (key == key_menu_decscreen)      // Screen size down
         {
 	    if (automapactive || chat_on)
@@ -1668,6 +1674,13 @@ boolean M_Responder (event_t* ev)
 	    S_StartSound(NULL,sfx_stnmov);
 	    return true;
 	}
+#else
+        // On Android, ignore screen resize shortcuts during gameplay so Automap Z+/Z- never alter screen size
+        if (key == key_menu_decscreen || key == key_menu_incscreen)
+        {
+            return false;
+        }
+#endif
         else if (key == key_menu_help)     // Help key
         {
 	    M_StartControlPanel ();
@@ -2330,7 +2343,7 @@ static void M_ProcessTouchOnGameThread(int x, int y, boolean dragging)
                         {
                             int target = (x320 - barStartX + 4) / 8;
                             if (target < 0) target = 0;
-                            if (target > 8) target = 8;
+                            if (target > 7) target = 7;
                             screenSize = target;
                             screenblocks = target + 3;
                             R_SetViewSize(screenblocks, detailLevel);
@@ -2487,6 +2500,10 @@ void M_Init (void)
     itemOn = currentMenu->lastOn;
     whichSkull = 0;
     skullAnimCounter = 10;
+    if (screenblocks > 10)
+        screenblocks = 10;
+    if (screenblocks < 3)
+        screenblocks = 3;
     screenSize = screenblocks - 3;
     messageToPrint = 0;
     messageString = NULL;

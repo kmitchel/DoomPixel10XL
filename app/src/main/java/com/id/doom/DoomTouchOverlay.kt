@@ -871,8 +871,9 @@ class DoomTouchOverlay @JvmOverloads constructor(
             return
         }
 
-        // 8. Title Screen / Intermission Direct Touch
-        if (x in viewportLeft..(viewportLeft + viewportW) && y in viewportTop..(viewportTop + viewportH)) {
+        // 8. Title Screen / Intermission Direct Touch (Never during active level gameplay)
+        val inLevelGameplay = (uiMask and DoomBridge.UI_BIT_MAP) != 0
+        if (!inLevelGameplay && x in viewportLeft..(viewportLeft + viewportW) && y in viewportTop..(viewportTop + viewportH)) {
             val normX = ((x - viewportLeft) / viewportW).coerceIn(0f, 1f)
             val normY = ((y - viewportTop) / viewportH).coerceIn(0f, 1f)
             DoomBridge.nativeTouchScreen(normX, normY)

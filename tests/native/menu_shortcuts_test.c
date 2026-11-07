@@ -35,6 +35,11 @@ extern int quickSaveSlot;
 extern int saveStringEnter;
 extern boolean sendsave;
 extern char *savegamedir;
+extern int viewheight;
+extern void R_SetViewSize(int blocks, int detail);
+extern void R_ExecuteSetViewSize(void);
+extern void M_ClearMenus(void);
+extern void M_SizeDisplay(int choice);
 
 static void press(int key)
 {
@@ -173,6 +178,24 @@ int main(int argc, char **argv)
     M_TouchAt(200, 108); // A separate press explicitly accepts the save.
     M_Ticker();
     assert(!saveStringEnter && sendsave);
+
+    // In-game screen size shortcuts (KEY_EQUALS / KEY_MINUS) must be ignored on Android
+    // so Automap zoom controls never accidentally resize the display or hide the HUD.
+    M_ClearMenus();
+    assert(!menuactive);
+    int prev_blocks = screenblocks;
+    press(KEY_EQUALS);
+    assert(screenblocks == prev_blocks);
+    press(KEY_MINUS);
+    assert(screenblocks == prev_blocks);
+
+    // Screen size must be clamped to 10 max so the HUD status bar (viewheight 168) is never hidden.
+    M_SizeDisplay(1);
+    assert(screenblocks <= 10);
+    R_SetViewSize(11, 0);
+    R_ExecuteSetViewSize();
+    assert(viewheight <= 168);
+
     puts("Menu shortcut and touch gesture regression tests passed");
     return 0;
 }

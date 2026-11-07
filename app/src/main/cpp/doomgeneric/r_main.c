@@ -656,6 +656,10 @@ R_SetViewSize
   int		detail )
 {
     setsizeneeded = true;
+    if (blocks > 10)
+        blocks = 10;
+    if (blocks < 3)
+        blocks = 3;
     setblocks = blocks;
     setdetail = detail;
 }
@@ -675,16 +679,13 @@ void R_ExecuteSetViewSize (void)
 
     setsizeneeded = false;
 
-    if (setblocks == 11)
-    {
-	scaledviewwidth = SCREENWIDTH;
-	viewheight = SCREENHEIGHT;
-    }
-    else
-    {
-	scaledviewwidth = setblocks*32;
-	viewheight = (setblocks*168/10)&~7;
-    }
+    if (setblocks > 10)
+        setblocks = 10;
+    if (setblocks < 3)
+        setblocks = 3;
+
+    scaledviewwidth = setblocks*32;
+    viewheight = (setblocks*168/10)&~7;
     
     detailshift = setdetail;
     viewwidth = scaledviewwidth>>detailshift;
@@ -725,7 +726,7 @@ void R_ExecuteSetViewSize (void)
     // planes
     for (i=0 ; i<viewheight ; i++)
     {
-	dy = ((i-viewheight/2)<<FRACBITS)+FRACUNIT/2;
+	dy = (i - viewheight/2) * FRACUNIT + FRACUNIT/2;
 	dy = abs(dy);
 	yslope[i] = FixedDiv ( (viewwidth<<detailshift)/2*FRACUNIT, dy);
     }
