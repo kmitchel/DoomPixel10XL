@@ -408,8 +408,8 @@ class DoomTouchOverlay @JvmOverloads constructor(
         paintTextMed.setShadowLayer(2.5f * density, 0f, 1.2f * density, Color.argb(180, 0, 0, 0))
         paintTextSmall.setShadowLayer(2f * density, 0f, 1f * density, Color.argb(180, 0, 0, 0))
 
-        stickRadius = 72f * density
-        stickActiveRadius = 50f * density
+        stickRadius = 75f * density
+        stickActiveRadius = 65f * density
 
         // 1. Virtual stick base at bottom-left
         stickCenterBaseX = 118f * density
@@ -421,24 +421,43 @@ class DoomTouchOverlay @JvmOverloads constructor(
 
         // 2. Action Buttons (Right-side vertically stacked tactical cluster):
         // Outer pod: rectCluster
-        // Tier 1 (Top): rectUse
-        // Tier 2 (Middle): rectFire
-        // Tier 3 (Bottom): rectSideLeft (◀) and rectSideRight (▶)
+        // Tier 1 (Top): rectUse (same height as FIRE)
+        // Tier 2 (Middle): rectFire (center horizontally aligned with left joystick stickCenterBaseY!)
+        // Tier 3 (Bottom): rectSideLeft (◀) and rectSideRight (▶) (same height as FIRE)
+        // All three tiers share the exact same height (btnH = 58dp)
         val rightMargin = w - (16f * density)
-        val bottomMargin = h - (16f * density)
         val clusterW = 110f * density
         val colLeft = rightMargin - clusterW
         val colRight = rightMargin
 
+        val btnH = 58f * density
         val rowGap = 7f * density
-        val strafeH = 44f * density
-        val fireH = 74f * density
-        val useH = 44f * density
         val podPad = 6f * density
 
-        // Tier 3 (Bottom): Strafe dual rocker
-        val strafeBottom = bottomMargin
-        val strafeTop = strafeBottom - strafeH
+        // Tier 2 (Middle): FIRE button (center horizontally aligned with left joystick stickCenterBaseY)
+        val fireCenterY = stickCenterBaseY
+        val fireTop = fireCenterY - (btnH / 2f)
+        val fireBottom = fireCenterY + (btnH / 2f)
+        rectFire.set(
+            colLeft,
+            fireTop,
+            colRight,
+            fireBottom
+        )
+
+        // Tier 1 (Top): USE button (same height as FIRE)
+        val useBottom = fireTop - rowGap
+        val useTop = useBottom - btnH
+        rectUse.set(
+            colLeft,
+            useTop,
+            colRight,
+            useBottom
+        )
+
+        // Tier 3 (Bottom): Strafe dual rocker (same height as FIRE)
+        val strafeTop = fireBottom + rowGap
+        val strafeBottom = strafeTop + btnH
         val strafeGap = 6f * density
         val strafeW = (clusterW - strafeGap) / 2f
 
@@ -453,26 +472,6 @@ class DoomTouchOverlay @JvmOverloads constructor(
             strafeTop,
             colRight,
             strafeBottom
-        )
-
-        // Tier 2 (Middle): FIRE button
-        val fireBottom = strafeTop - rowGap
-        val fireTop = fireBottom - fireH
-        rectFire.set(
-            colLeft,
-            fireTop,
-            colRight,
-            fireBottom
-        )
-
-        // Tier 1 (Top): USE button
-        val useBottom = fireTop - rowGap
-        val useTop = useBottom - useH
-        rectUse.set(
-            colLeft,
-            useTop,
-            colRight,
-            useBottom
         )
 
         // Pod Backdrop surrounding the vertical stack
@@ -616,7 +615,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
         canvas.drawRoundRect(rectCluster, 18f * density, 18f * density, paintBtnPod)
         canvas.drawRoundRect(rectCluster, 18f * density, 18f * density, paintStrokePod)
 
-        // Tier 1 (Top): USE button
+        // Tier 1 (Top): USE button (same height as FIRE)
         drawButton(
             canvas,
             rectUse,
@@ -624,24 +623,24 @@ class DoomTouchOverlay @JvmOverloads constructor(
             paintStrokeUse,
             "USE",
             paintTextLarge,
-            cornerRadius = 13f * density
+            cornerRadius = 14f * density
         )
 
-        // Tier 2 (Middle): FIRE button
+        // Tier 2 (Middle): FIRE button (center horizontally aligned with left joystick)
         val fireHeld = isKeyHeld(DoomBridge.KEY_FIRE)
-        canvas.drawRoundRect(rectFire, 15f * density, 15f * density, if (fireHeld) paintBtnPressed else paintBtnFire)
-        canvas.drawRoundRect(rectFire, 15f * density, 15f * density, paintStrokeRed)
+        canvas.drawRoundRect(rectFire, 14f * density, 14f * density, if (fireHeld) paintBtnPressed else paintBtnFire)
+        canvas.drawRoundRect(rectFire, 14f * density, 14f * density, paintStrokeRed)
         canvas.drawText("FIRE", rectFire.centerX(), rectFire.centerY() + (6f * density), paintTextLarge)
 
-        // Tier 3 (Bottom): Strafe dual rocker buttons
+        // Tier 3 (Bottom): Strafe dual rocker buttons (same height as FIRE)
         drawButton(
             canvas,
             rectSideLeft,
             if (isKeyHeld(DoomBridge.KEY_STRAFE_L)) paintBtnPressed else paintBtnStrafe,
             paintStrokeStrafe,
             "◀",
-            paintTextMed,
-            cornerRadius = 13f * density
+            paintTextLarge,
+            cornerRadius = 14f * density
         )
         drawButton(
             canvas,
@@ -649,8 +648,8 @@ class DoomTouchOverlay @JvmOverloads constructor(
             if (isKeyHeld(DoomBridge.KEY_STRAFE_R)) paintBtnPressed else paintBtnStrafe,
             paintStrokeStrafe,
             "▶",
-            paintTextMed,
-            cornerRadius = 13f * density
+            paintTextLarge,
+            cornerRadius = 14f * density
         )
 
         // 5. Prompt Overlay (When DOOM prompts Y/N)
@@ -909,19 +908,15 @@ class DoomTouchOverlay @JvmOverloads constructor(
             return
         }
 
-        // 7. Left Virtual Stick (Smart Dual-Zone Origin + Dynamic Leash — zero dead travel on direction reversal!)
+        // 7. Left Virtual Stick (Touch anchor + progressive walking curve + anti-veer corridor)
         val hasStickPointer = pointerRoles.values.any { it is PointerRole.Stick }
         if (!hasStickPointer && (distToStick <= stickRadius * 1.35f || (x < viewportLeft && y > height * 0.35f))) {
             pointerRoles[pid] = PointerRole.Stick
-            if (distToStick <= stickRadius * 0.38f) {
-                // Touching inner knob: anchor origin to thumb so resting thumb never causes accidental lurch
-                stickOriginX = x
-                stickOriginY = y
-            } else {
-                // Touching outer ring: use base center for immediate directional response
-                stickOriginX = stickCenterBaseX
-                stickOriginY = stickCenterBaseY
-            }
+            // Anchor origin to touch point so initial touch never causes accidental lurch or run!
+            stickOriginX = x
+            stickOriginY = y
+            stickThumbX = x
+            stickThumbY = y
             updateStickPosition(x, y)
             return
         }
@@ -938,11 +933,42 @@ class DoomTouchOverlay @JvmOverloads constructor(
         pointerRoles[pid] = PointerRole.Look(x, y)
     }
 
-    private fun applyDeadzone(value: Float, deadzone: Float): Float {
-        val absVal = kotlin.math.abs(value)
-        if (absVal <= deadzone) return 0f
-        val sign = if (value >= 0f) 1f else -1f
-        return (sign * ((absVal - deadzone) / (1f - deadzone))).coerceIn(-1f, 1f)
+    private fun calcAnalogForward(rawY: Float): Float {
+        val deadzone = 0.07f
+        val absY = kotlin.math.abs(rawY)
+        if (absY <= deadzone) return 0f
+        val sign = if (rawY >= 0f) 1f else -1f
+        val t = ((absY - deadzone) / (1f - deadzone)).coerceIn(0f, 1f)
+
+        // Generous walking band: 65% of physical stick throw is dedicated to walking (speeds 0 to 25/50 in DOOM)
+        // Outer 35% ramps smoothly into running (speeds 25 to 50/50 in DOOM)
+        val walkZone = 0.65f
+        val speed = if (t <= walkZone) {
+            val progress = t / walkZone
+            0.50f * (0.25f * progress * progress + 0.75f * progress)
+        } else {
+            val progress = (t - walkZone) / (1f - walkZone)
+            0.50f + 0.50f * (progress * progress * 0.35f + progress * 0.65f)
+        }
+        return (sign * speed).coerceIn(-1f, 1f)
+    }
+
+    private fun calcAnalogTurn(rawX: Float, rawY: Float): Float {
+        val absX = kotlin.math.abs(rawX)
+        val absY = kotlin.math.abs(rawY)
+
+        // Forward-motion anti-veer: when walking forward or backward, provide an axial deadband
+        // so slight natural thumb wobble doesn't spin the camera
+        var deadzone = 0.08f
+        if (absY > 0.18f) {
+            deadzone = deadzone.coerceAtLeast((absY * 0.35f).coerceAtMost(0.25f))
+        }
+
+        if (absX <= deadzone) return 0f
+        val sign = if (rawX >= 0f) 1f else -1f
+        val t = ((absX - deadzone) / (1f - deadzone)).coerceIn(0f, 1f)
+        val turnVal = t * (0.4f + 0.6f * t)
+        return (sign * turnVal).coerceIn(-1f, 1f)
     }
 
     private fun updateStickPosition(x: Float, y: Float) {
@@ -951,14 +977,14 @@ class DoomTouchOverlay @JvmOverloads constructor(
         val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
 
         // Dynamic Leash: if thumb drags past stickActiveRadius, pull stickOrigin behind thumb
-        // (clamped near base) so reversing thumb direction responds instantaneously!
+        // so reversing thumb direction responds instantaneously without lag
         if (dist > stickActiveRadius) {
             val angle = atan2(dy.toDouble(), dx.toDouble())
             stickOriginX = x - (stickActiveRadius * cos(angle)).toFloat()
             stickOriginY = y - (stickActiveRadius * sin(angle)).toFloat()
 
-            // Clamp origin drift within 26dp of visual base center
-            val maxDrift = stickRadius * 0.36f
+            // Clamp origin drift within 50% radius of visual base center
+            val maxDrift = stickRadius * 0.50f
             val baseDx = stickOriginX - stickCenterBaseX
             val baseDy = stickOriginY - stickCenterBaseY
             val baseDist = hypot(baseDx.toDouble(), baseDy.toDouble()).toFloat()
@@ -988,12 +1014,10 @@ class DoomTouchOverlay @JvmOverloads constructor(
         val rawX = (dx / stickActiveRadius).coerceIn(-1f, 1f)
         val rawY = (-dy / stickActiveRadius).coerceIn(-1f, 1f)
 
-        // Radial deadzone (8%) + axial anti-veer deadzone so pushing forward doesn't veer sideways
-        val normY = applyDeadzone(rawY, 0.08f)
-        val horizDeadzone = if (kotlin.math.abs(normY) > 0.55f) 0.15f else 0.08f
-        val normX = applyDeadzone(rawX, horizDeadzone)
+        val normY = calcAnalogForward(rawY)
+        val normX = calcAnalogTurn(rawX, rawY)
 
-        // X turns; Y moves continuously from a slow walk to full running speed.
+        // Forward/backward moves along the progressive walk/run curve; X turns with anti-veer stabilization
         DoomBridge.nativeSendAnalog(forward = normY, strafe = 0f, turn = normX)
     }
 

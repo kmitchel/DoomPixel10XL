@@ -16,8 +16,8 @@ android {
         applicationId = "com.id.doom"
         minSdk = 29
         targetSdk = 35
-        versionCode = 26
-        versionName = "1.3.13"
+        versionCode = 27
+        versionName = "1.3.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
