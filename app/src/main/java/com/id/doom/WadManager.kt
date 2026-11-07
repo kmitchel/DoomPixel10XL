@@ -6,8 +6,11 @@ import android.util.Log
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 class WadManager(private val context: Context) {
 
@@ -27,12 +30,14 @@ class WadManager(private val context: Context) {
         get() = File(context.filesDir, "saves").apply { if (!exists()) mkdirs() }
 
     /**
-     * Validates whether a file is a well-formed DOOM WAD (IWAD or PWAD).
-     * Checks:
+     * Validates whether a file is a playable, well-formed DOOM base-game IWAD.
+     * Enforces:
      * - Minimum size of 12 bytes
-     * - Magic header: "IWAD" or "PWAD"
-     * - Valid numlumps (0 to 500,000)
-     * - Directory offset inside file bounds: infotableofs >= 12 and infotableofs + numlumps * 16 <= fileSize
+     * - Magic header is strictly "IWAD" (stand-alone base game container)
+     * - Plausible lump count (50 to 500,000; rejects degenerate 0-lump containers)
+     * - Lump directory bounds within file size
+     * - Validates individual lump offsets and lengths
+     * - Requires mandatory base-game resources: PLAYPAL, COLORMAP, and at least one mission map (E1M1 or MAP01)
      */
     fun isValidWadFile(file: File): Boolean {
         if (!file.exists() || !file.isFile) return false
@@ -40,18 +45,13 @@ class WadManager(private val context: Context) {
         if (fileLength < 12L) return false
 
         return try {
-            FileInputStream(file).use { input ->
+            RandomAccessFile(file, "r").use { raf ->
                 val header = ByteArray(12)
-                var bytesRead = 0
-                while (bytesRead < 12) {
-                    val r = input.read(header, bytesRead, 12 - bytesRead)
-                    if (r < 0) return false
-                    bytesRead += r
-                }
+                raf.readFully(header)
 
                 val magic = String(header, 0, 4, Charsets.US_ASCII)
-                if (magic != "IWAD" && magic != "PWAD") {
-                    Log.w(TAG, "File ${file.name} header magic is not IWAD/PWAD: '$magic'")
+                if (magic != "IWAD") {
+                    Log.w(TAG, "File ${file.name} is not an IWAD (magic: '$magic')")
                     return false
                 }
 
@@ -59,7 +59,7 @@ class WadManager(private val context: Context) {
                 val numLumps = buf.getInt(4)
                 val infoTableOfs = buf.getInt(8)
 
-                if (numLumps < 0 || numLumps > 500000) {
+                if (numLumps < 50 || numLumps > 500000) {
                     Log.w(TAG, "File ${file.name} invalid lump count: $numLumps")
                     return false
                 }
@@ -67,11 +67,54 @@ class WadManager(private val context: Context) {
                     Log.w(TAG, "File ${file.name} invalid directory offset: $infoTableOfs")
                     return false
                 }
-                val dirEnd = infoTableOfs.toLong() + (numLumps.toLong() * 16L)
+                val dirBytes = numLumps.toLong() * 16L
+                val dirEnd = infoTableOfs.toLong() + dirBytes
                 if (dirEnd > fileLength) {
                     Log.w(TAG, "File ${file.name} directory extends beyond EOF: $dirEnd > $fileLength")
                     return false
                 }
+
+                // Read lump directory entries to check required base-game resources
+                raf.seek(infoTableOfs.toLong())
+                val dirBuffer = ByteArray(dirBytes.toInt())
+                raf.readFully(dirBuffer)
+                val dirWrap = ByteBuffer.wrap(dirBuffer).order(ByteOrder.LITTLE_ENDIAN)
+
+                var hasPlaypal = false
+                var hasColormap = false
+                var hasMap = false
+
+                for (i in 0 until numLumps) {
+                    val entryOffset = i * 16
+                    val lumpPos = dirWrap.getInt(entryOffset).toLong() and 0xFFFFFFFFL
+                    val lumpSize = dirWrap.getInt(entryOffset + 4).toLong() and 0xFFFFFFFFL
+
+                    if (lumpPos + lumpSize > fileLength) {
+                        Log.w(TAG, "File ${file.name} lump $i ($lumpPos + $lumpSize) extends beyond EOF ($fileLength)")
+                        return false
+                    }
+
+                    val nameBytes = ByteArray(8)
+                    System.arraycopy(dirBuffer, entryOffset + 8, nameBytes, 0, 8)
+                    val zeroIdx = nameBytes.indexOf(0.toByte())
+                    val lumpName = if (zeroIdx >= 0) {
+                        String(nameBytes, 0, zeroIdx, Charsets.US_ASCII).trim()
+                    } else {
+                        String(nameBytes, Charsets.US_ASCII).trim()
+                    }.uppercase()
+
+                    when (lumpName) {
+                        "PLAYPAL" -> hasPlaypal = true
+                        "COLORMAP" -> hasColormap = true
+                        "E1M1", "MAP01" -> hasMap = true
+                    }
+                }
+
+                if (!hasPlaypal || !hasColormap || !hasMap) {
+                    Log.w(TAG, "File ${file.name} missing essential base resources: PLAYPAL=$hasPlaypal, COLORMAP=$hasColormap, MAP=$hasMap")
+                    return false
+                }
+
                 true
             }
         } catch (e: Exception) {
@@ -105,7 +148,7 @@ class WadManager(private val context: Context) {
         return if (isValidWadFile(activeFile)) {
             activeFile.absolutePath
         } else {
-            Log.w(TAG, "Active WAD '$activeName' is invalid or missing, reverting to $DEFAULT_WAD")
+            Log.w(TAG, "Active WAD '$activeName' is invalid or missing essential resources, reverting to $DEFAULT_WAD")
             setActiveWadName(DEFAULT_WAD)
             defaultFile.absolutePath
         }
@@ -127,8 +170,8 @@ class WadManager(private val context: Context) {
 
     /**
      * Imports a user-selected WAD file via Android Storage Access Framework (SAF).
-     * Streams into a temporary file, validates WAD header and directory bounds,
-     * and atomically promotes only upon successful validation.
+     * Streams into a temporary file, validates complete IWAD structure and required resources,
+     * and atomically promotes via atomic filesystem rename without pre-deleting the original.
      */
     fun importCustomWad(uri: Uri, displayName: String): String? {
         val sanitized = displayName.replace(Regex("[^a-zA-Z0-9._-]"), "_").trim('_')
@@ -150,25 +193,30 @@ class WadManager(private val context: Context) {
             }
 
             if (!isValidWadFile(tmpFile)) {
-                Log.e(TAG, "Imported file $displayName is not a valid DOOM WAD. Deleting temporary file.")
+                Log.e(TAG, "Imported file $displayName is not a valid DOOM IWAD. Deleting temporary file.")
                 tmpFile.delete()
                 return null
             }
 
-            if (destFile.exists()) {
-                destFile.delete()
-            }
-            if (!tmpFile.renameTo(destFile)) {
-                tmpFile.inputStream().use { input ->
-                    destFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
-                tmpFile.delete()
+            // Atomic filesystem move: replaces destFile in a single POSIX rename syscall without deletion gap
+            try {
+                Files.move(
+                    tmpFile.toPath(),
+                    destFile.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE
+                )
+            } catch (e: Exception) {
+                // Fallback to standard replace if filesystem does not support atomic move
+                Files.move(
+                    tmpFile.toPath(),
+                    destFile.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING
+                )
             }
 
             setActiveWadName(destFile.name)
-            Log.i(TAG, "Successfully imported and validated custom WAD: ${destFile.absolutePath}")
+            Log.i(TAG, "Successfully imported and validated custom IWAD: ${destFile.absolutePath}")
             destFile.absolutePath
         } catch (e: Exception) {
             Log.e(TAG, "Failed to import custom WAD: $displayName", e)

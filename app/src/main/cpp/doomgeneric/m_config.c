@@ -23,6 +23,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <errno.h>
+#include <pthread.h>
 
 #include "config.h"
 
@@ -1606,15 +1607,24 @@ static const int scantokey[128] =
 };
 
 
+static pthread_mutex_t s_config_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 static void SaveDefaultCollection(default_collection_t *collection)
 {
     default_t *defaults;
     int i, v;
     FILE *f;
-	
-    f = fopen (collection->filename, "w");
+    char tmppath[512];
+
+    pthread_mutex_lock(&s_config_mutex);
+
+    snprintf(tmppath, sizeof(tmppath), "%s.tmp", collection->filename);
+    f = fopen (tmppath, "w");
     if (!f)
-	return; // can't write the file, but don't complain
+    {
+        pthread_mutex_unlock(&s_config_mutex);
+        return; // can't write the file, but don't complain
+    }
 
     defaults = collection->defaults;
 		
@@ -1706,7 +1716,11 @@ static void SaveDefaultCollection(default_collection_t *collection)
         fprintf(f, "\n");
     }
 
+    fflush(f);
     fclose (f);
+    rename(tmppath, collection->filename);
+
+    pthread_mutex_unlock(&s_config_mutex);
 }
 
 // Parses integer values in the configuration file
@@ -1751,9 +1765,20 @@ static void SetVariable(default_t *def, char *value)
             {
                 intparm = scantokey[intparm];
             }
+            else if (intparm >= 128 && intparm <= 255)
+            {
+                // Already a DOOM key constant (e.g. KEY_FIRE 163, KEY_USE 162, arrows 172..175, KEY_PAUSE 255)
+                // Retain as-is!
+            }
             else
             {
                 intparm = 0;
+            }
+
+            // Self-healing recovery: if an earlier buggy version saved 0 for a key that has a non-zero default, restore default!
+            if (intparm == 0 && * (int *) def->location != 0)
+            {
+                intparm = * (int *) def->location;
             }
 
             def->original_translated = intparm;
@@ -1773,6 +1798,8 @@ static void LoadDefaultCollection(default_collection_t *collection)
     char defname[80];
     char strparm[100];
 
+    pthread_mutex_lock(&s_config_mutex);
+
     // read the file in, overriding any set defaults
     f = fopen(collection->filename, "r");
 
@@ -1781,6 +1808,7 @@ static void LoadDefaultCollection(default_collection_t *collection)
         // File not opened, but don't complain. 
         // It's probably just the first time they ran the game.
 
+        pthread_mutex_unlock(&s_config_mutex);
         return;
     }
 
@@ -1825,6 +1853,7 @@ static void LoadDefaultCollection(default_collection_t *collection)
     }
 
     fclose (f);
+    pthread_mutex_unlock(&s_config_mutex);
 }
 
 // Set the default filenames to use for configuration files.
@@ -2113,40 +2142,64 @@ char *M_GetSaveGameDir(char *iwadname)
         savegamedir = M_StringJoin(topdir, DIR_SEPARATOR_S, clean_iwad, DIR_SEPARATOR_S, NULL);
         M_MakeDirectory(savegamedir);
 
-        // Migrate any legacy un-namespaced saves from configdir/.savegame/ if target has none yet
-        char *legacy_dir = M_StringJoin(configdir, DIR_SEPARATOR_S, ".savegame", DIR_SEPARATOR_S, NULL);
-        for (int slot = 0; slot < 6; ++slot)
+        // Migrate legacy un-namespaced saves exactly once into default shareware/registered IWAD
+        char *migration_marker = M_StringJoin(configdir, DIR_SEPARATOR_S, ".savegame_migrated", NULL);
+        FILE *mf = fopen(migration_marker, "rb");
+        if (!mf)
         {
-            char legacy_file[512];
-            char target_file[512];
-            snprintf(legacy_file, sizeof(legacy_file), "%sdoomsav%d.dsg", legacy_dir, slot);
-            snprintf(target_file, sizeof(target_file), "%sdoomsav%d.dsg", savegamedir, slot);
-            FILE *tf = fopen(target_file, "rb");
-            if (!tf)
+            if (!strcasecmp(clean_iwad, "doom1.wad") || !strcasecmp(clean_iwad, "doom.wad"))
             {
-                FILE *lf = fopen(legacy_file, "rb");
-                if (lf)
+                char *legacy_dir = M_StringJoin(configdir, DIR_SEPARATOR_S, ".savegame", DIR_SEPARATOR_S, NULL);
+                for (int slot = 0; slot < 6; ++slot)
                 {
-                    FILE *dest = fopen(target_file, "wb");
-                    if (dest)
+                    char legacy_file[512];
+                    char target_file[512];
+                    snprintf(legacy_file, sizeof(legacy_file), "%sdoomsav%d.dsg", legacy_dir, slot);
+                    snprintf(target_file, sizeof(target_file), "%sdoomsav%d.dsg", savegamedir, slot);
+                    FILE *tf = fopen(target_file, "rb");
+                    if (!tf)
                     {
-                        char buf[4096];
-                        size_t n;
-                        while ((n = fread(buf, 1, sizeof(buf), lf)) > 0)
+                        FILE *lf = fopen(legacy_file, "rb");
+                        if (lf)
                         {
-                            fwrite(buf, 1, n, dest);
+                            char tmp_target[512];
+                            snprintf(tmp_target, sizeof(tmp_target), "%s.tmp", target_file);
+                            FILE *dest = fopen(tmp_target, "wb");
+                            if (dest)
+                            {
+                                char buf[4096];
+                                size_t n;
+                                while ((n = fread(buf, 1, sizeof(buf), lf)) > 0)
+                                {
+                                    fwrite(buf, 1, n, dest);
+                                }
+                                fflush(dest);
+                                fclose(dest);
+                                rename(tmp_target, target_file);
+                            }
+                            fclose(lf);
                         }
-                        fclose(dest);
                     }
-                    fclose(lf);
+                    else
+                    {
+                        fclose(tf);
+                    }
+                }
+                free(legacy_dir);
+
+                FILE *mw = fopen(migration_marker, "w");
+                if (mw)
+                {
+                    fprintf(mw, "migrated to %s\n", clean_iwad);
+                    fclose(mw);
                 }
             }
-            else
-            {
-                fclose(tf);
-            }
         }
-        free(legacy_dir);
+        else
+        {
+            fclose(mf);
+        }
+        free(migration_marker);
         free(topdir);
 
         printf ("Using %s for savegames\n", savegamedir);

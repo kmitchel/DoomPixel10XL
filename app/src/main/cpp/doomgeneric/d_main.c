@@ -1558,7 +1558,9 @@ void D_DoomMain (void)
     else
 #endif
     {
-        savegamedir = M_GetSaveGameDir(D_SaveGameIWADName(gamemission));
+        int p = M_CheckParmWithArgs("-iwad", 1);
+        char *iwad_ident = (p > 0) ? myargv[p + 1] : D_SaveGameIWADName(gamemission);
+        savegamedir = M_GetSaveGameDir(iwad_ident);
     }
 
     // Check for -file in shareware

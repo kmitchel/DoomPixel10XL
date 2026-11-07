@@ -41,6 +41,7 @@ static float g_analogTurn = 0.0f;
 extern "C" int g_aiUpscaleMode;
 static std::atomic<int> s_pendingUpscaleMode{2};
 static int g_currentWindowScale = -1;
+static std::atomic<bool> s_pendingConfigSave{false};
 
 extern "C" void R_SyncFrameUpscaleMode(void)
 {
@@ -268,6 +269,7 @@ extern "C" void Android_OnQuit(void)
 }
 
 extern "C" int joybspeed;
+extern "C" void M_SaveDefaults(void);
 
 // Background Game Loop
 static void* GameThreadFunc(void* /*arg*/)
@@ -307,6 +309,9 @@ static void* GameThreadFunc(void* /*arg*/)
 
     g_gameRunning = true;
     while (g_gameRunning) {
+        if (s_pendingConfigSave.exchange(false, std::memory_order_relaxed)) {
+            M_SaveDefaults();
+        }
         if (g_gamePaused) {
             usleep(16000);
             continue;
@@ -554,7 +559,7 @@ Java_com_id_doom_DoomBridge_nativeSetPaused(JNIEnv* /*env*/, jclass /*clazz*/, j
     g_gamePaused = isPaused;
     Android_SetAudioPaused(isPaused);
     if (isPaused && g_gameRunning) {
-        M_SaveDefaults();
+        s_pendingConfigSave.store(true, std::memory_order_relaxed);
     }
 }
 
@@ -564,7 +569,8 @@ Java_com_id_doom_DoomBridge_nativeStop(JNIEnv* /*env*/, jclass /*clazz*/)
     g_gamePaused = true;
     Android_SetAudioPaused(true);
     if (g_gameRunning) {
-        M_SaveDefaults();
+        s_pendingConfigSave.store(true, std::memory_order_relaxed);
+        usleep(30000);
     }
 }
 
