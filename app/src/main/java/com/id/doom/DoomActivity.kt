@@ -142,13 +142,13 @@ class DoomActivity : ComponentActivity() {
 
         val recoveryPrefs = getSharedPreferences("doom_engine_recovery", Context.MODE_PRIVATE)
         wadManager = WadManager(this)
-        if (recoveryPrefs.getBoolean("crashed_on_boot", false)) {
-            Log.w(TAG, "Previous launch detected native crash. Reverting to bundled doom1.wad.")
-            wadManager.setActiveWadName("doom1.wad")
+        val iwadPath = if (recoveryPrefs.getBoolean("crashed_on_boot", false)) {
+            Log.w(TAG, "Previous launch detected native crash. Restoring pristine bundled doom1.wad.")
             recoveryPrefs.edit().putBoolean("crashed_on_boot", false).apply()
+            wadManager.forceRestoreDefaultWad()
+        } else {
+            wadManager.setupDefaultWad()
         }
-
-        val iwadPath = wadManager.setupDefaultWad()
 
         // 5. Construct Layout: 4:3 Pillarboxed SurfaceView centered in OLED black root, TouchOverlay on top
         val rootLayout = FrameLayout(this).apply {
@@ -178,14 +178,17 @@ class DoomActivity : ComponentActivity() {
         rootLayout.addView(touchOverlay)
         setContentView(rootLayout)
 
+        DoomBridge.firstFrameListener = {
+            runOnUiThread {
+                Log.i(TAG, "Native engine rendered first frame successfully — disarming crash guard")
+                recoveryPrefs.edit().putBoolean("crashed_on_boot", false).apply()
+            }
+        }
+
         // 6. Launch native engine thread with crash guard
         Log.i(TAG, "Launching DOOM engine with IWAD: $iwadPath")
         recoveryPrefs.edit().putBoolean("crashed_on_boot", true).apply()
         DoomBridge.nativeInit(iwadPath, wadManager.saveDirectory.absolutePath)
-
-        window.decorView.postDelayed({
-            recoveryPrefs.edit().putBoolean("crashed_on_boot", false).apply()
-        }, 2000)
     }
 
     override fun onResume() {

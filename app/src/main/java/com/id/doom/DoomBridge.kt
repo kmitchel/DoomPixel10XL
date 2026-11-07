@@ -53,6 +53,7 @@ object DoomBridge {
     var hapticListener: ((Int) -> Unit)? = null
     var quitListener: (() -> Unit)? = null
     var wadPickerListener: (() -> Unit)? = null
+    var firstFrameListener: (() -> Unit)? = null
 
     @JvmStatic
     fun onHapticEvent(effectType: Int) {
@@ -62,6 +63,11 @@ object DoomBridge {
     @JvmStatic
     fun onQuitEvent() {
         quitListener?.invoke()
+    }
+
+    @JvmStatic
+    fun onFirstFrameEvent() {
+        firstFrameListener?.invoke()
     }
 
     fun requestWadPicker() {

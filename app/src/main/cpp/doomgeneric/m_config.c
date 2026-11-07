@@ -1775,12 +1775,6 @@ static void SetVariable(default_t *def, char *value)
                 intparm = 0;
             }
 
-            // Self-healing recovery: if an earlier buggy version saved 0 for a key that has a non-zero default, restore default!
-            if (intparm == 0 && * (int *) def->location != 0)
-            {
-                intparm = * (int *) def->location;
-            }
-
             def->original_translated = intparm;
             * (int *) def->location = intparm;
             break;
@@ -2142,25 +2136,57 @@ char *M_GetSaveGameDir(char *iwadname)
         savegamedir = M_StringJoin(topdir, DIR_SEPARATOR_S, clean_iwad, DIR_SEPARATOR_S, NULL);
         M_MakeDirectory(savegamedir);
 
-        // Migrate legacy un-namespaced saves exactly once into default shareware/registered IWAD
-        char *migration_marker = M_StringJoin(configdir, DIR_SEPARATOR_S, ".savegame_migrated", NULL);
+        // Migrate legacy un-namespaced saves and v1.3.3 doom.wad saves into doom1.wad
+        char *migration_marker = M_StringJoin(topdir, DIR_SEPARATOR_S, ".v134_savegames_migrated", NULL);
         FILE *mf = fopen(migration_marker, "rb");
         if (!mf)
         {
-            if (!strcasecmp(clean_iwad, "doom1.wad") || !strcasecmp(clean_iwad, "doom.wad"))
+            if (!strcasecmp(clean_iwad, "doom1.wad"))
             {
+                char *v133_dir = M_StringJoin(topdir, DIR_SEPARATOR_S, "doom.wad", DIR_SEPARATOR_S, NULL);
                 char *legacy_dir = M_StringJoin(configdir, DIR_SEPARATOR_S, ".savegame", DIR_SEPARATOR_S, NULL);
+                int migrated_count = 0;
+                int existing_count = 0;
+
                 for (int slot = 0; slot < 6; ++slot)
                 {
-                    char legacy_file[512];
                     char target_file[512];
-                    snprintf(legacy_file, sizeof(legacy_file), "%sdoomsav%d.dsg", legacy_dir, slot);
+                    char v133_file[512];
+                    char legacy_file[512];
                     snprintf(target_file, sizeof(target_file), "%sdoomsav%d.dsg", savegamedir, slot);
+                    snprintf(v133_file, sizeof(v133_file), "%sdoomsav%d.dsg", v133_dir, slot);
+                    snprintf(legacy_file, sizeof(legacy_file), "%sdoomsav%d.dsg", legacy_dir, slot);
+
                     FILE *tf = fopen(target_file, "rb");
-                    if (!tf)
+                    if (tf)
+                    {
+                        fclose(tf);
+                        existing_count++;
+                        continue;
+                    }
+
+                    // Prefer v1.3.3 doom.wad save if present, otherwise fall back to legacy .savegame
+                    const char *src_file = NULL;
+                    FILE *vf = fopen(v133_file, "rb");
+                    if (vf)
+                    {
+                        fclose(vf);
+                        src_file = v133_file;
+                    }
+                    else
                     {
                         FILE *lf = fopen(legacy_file, "rb");
                         if (lf)
+                        {
+                            fclose(lf);
+                            src_file = legacy_file;
+                        }
+                    }
+
+                    if (src_file)
+                    {
+                        FILE *src = fopen(src_file, "rb");
+                        if (src)
                         {
                             char tmp_target[512];
                             snprintf(tmp_target, sizeof(tmp_target), "%s.tmp", target_file);
@@ -2169,29 +2195,38 @@ char *M_GetSaveGameDir(char *iwadname)
                             {
                                 char buf[4096];
                                 size_t n;
-                                while ((n = fread(buf, 1, sizeof(buf), lf)) > 0)
+                                while ((n = fread(buf, 1, sizeof(buf), src)) > 0)
                                 {
                                     fwrite(buf, 1, n, dest);
                                 }
                                 fflush(dest);
                                 fclose(dest);
-                                rename(tmp_target, target_file);
+                                if (rename(tmp_target, target_file) == 0)
+                                {
+                                    migrated_count++;
+                                }
+                                else
+                                {
+                                    remove(tmp_target);
+                                }
                             }
-                            fclose(lf);
+                            fclose(src);
                         }
                     }
-                    else
-                    {
-                        fclose(tf);
-                    }
                 }
+
+                free(v133_dir);
                 free(legacy_dir);
 
-                FILE *mw = fopen(migration_marker, "w");
-                if (mw)
+                // Only record completion marker if files were migrated or target already has saves
+                if (migrated_count > 0 || existing_count > 0)
                 {
-                    fprintf(mw, "migrated to %s\n", clean_iwad);
-                    fclose(mw);
+                    FILE *mw = fopen(migration_marker, "w");
+                    if (mw)
+                    {
+                        fprintf(mw, "migrated %d saves to %s\n", migrated_count, clean_iwad);
+                        fclose(mw);
+                    }
                 }
             }
         }

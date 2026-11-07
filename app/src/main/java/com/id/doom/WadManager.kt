@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -34,10 +33,10 @@ class WadManager(private val context: Context) {
      * Enforces:
      * - Minimum size of 12 bytes
      * - Magic header is strictly "IWAD" (stand-alone base game container)
-     * - Plausible lump count (50 to 500,000; rejects degenerate 0-lump containers)
+     * - Bounded lump count (50 to 50,000; bounds memory consumption on UI thread)
      * - Lump directory bounds within file size
      * - Validates individual lump offsets and lengths
-     * - Requires mandatory base-game resources: PLAYPAL, COLORMAP, and at least one mission map (E1M1 or MAP01)
+     * - Requires mandatory base-game resources: PLAYPAL, COLORMAP, PNAMES, and at least one mission map (E1M1 or MAP01)
      */
     fun isValidWadFile(file: File): Boolean {
         if (!file.exists() || !file.isFile) return false
@@ -59,7 +58,7 @@ class WadManager(private val context: Context) {
                 val numLumps = buf.getInt(4)
                 val infoTableOfs = buf.getInt(8)
 
-                if (numLumps < 50 || numLumps > 500000) {
+                if (numLumps < 50 || numLumps > 50000) {
                     Log.w(TAG, "File ${file.name} invalid lump count: $numLumps")
                     return false
                 }
@@ -82,6 +81,7 @@ class WadManager(private val context: Context) {
 
                 var hasPlaypal = false
                 var hasColormap = false
+                var hasPnames = false
                 var hasMap = false
 
                 for (i in 0 until numLumps) {
@@ -106,12 +106,13 @@ class WadManager(private val context: Context) {
                     when (lumpName) {
                         "PLAYPAL" -> hasPlaypal = true
                         "COLORMAP" -> hasColormap = true
+                        "PNAMES" -> hasPnames = true
                         "E1M1", "MAP01" -> hasMap = true
                     }
                 }
 
-                if (!hasPlaypal || !hasColormap || !hasMap) {
-                    Log.w(TAG, "File ${file.name} missing essential base resources: PLAYPAL=$hasPlaypal, COLORMAP=$hasColormap, MAP=$hasMap")
+                if (!hasPlaypal || !hasColormap || !hasPnames || !hasMap) {
+                    Log.w(TAG, "File ${file.name} missing essential base resources: PLAYPAL=$hasPlaypal, COLORMAP=$hasColormap, PNAMES=$hasPnames, MAP=$hasMap")
                     return false
                 }
 
@@ -121,6 +122,24 @@ class WadManager(private val context: Context) {
             Log.e(TAG, "Error validating WAD file ${file.name}", e)
             false
         }
+    }
+
+    /**
+     * Unconditionally restores a pristine copy of bundled shareware doom1.wad from APK assets.
+     */
+    fun forceRestoreDefaultWad(): String {
+        val defaultFile = File(wadDirectory, DEFAULT_WAD)
+        if (defaultFile.exists()) {
+            defaultFile.delete()
+        }
+        context.assets.open("wads/$DEFAULT_WAD").use { input ->
+            FileOutputStream(defaultFile).use { output ->
+                input.copyTo(output)
+            }
+        }
+        setActiveWadName(DEFAULT_WAD)
+        Log.i(TAG, "Force-restored clean bundled $DEFAULT_WAD (${defaultFile.length()} bytes)")
+        return defaultFile.absolutePath
     }
 
     /**
@@ -172,10 +191,14 @@ class WadManager(private val context: Context) {
      * Imports a user-selected WAD file via Android Storage Access Framework (SAF).
      * Streams into a temporary file, validates complete IWAD structure and required resources,
      * and atomically promotes via atomic filesystem rename without pre-deleting the original.
+     * Protects bundled doom1.wad recovery copy from ever being overwritten.
      */
     fun importCustomWad(uri: Uri, displayName: String): String? {
         val sanitized = displayName.replace(Regex("[^a-zA-Z0-9._-]"), "_").trim('_')
-        val cleanName = if (sanitized.endsWith(".wad", ignoreCase = true)) sanitized else "$sanitized.wad"
+        val rawBase = if (sanitized.endsWith(".wad", ignoreCase = true)) sanitized else "$sanitized.wad"
+        // Protect bundled doom1.wad from being overwritten by an imported file
+        val cleanName = if (rawBase.equals(DEFAULT_WAD, ignoreCase = true)) "custom_doom1.wad" else rawBase
+
         val tmpFile = File(wadDirectory, "$cleanName.tmp")
         val destFile = File(wadDirectory, cleanName)
 

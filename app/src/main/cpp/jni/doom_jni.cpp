@@ -22,6 +22,7 @@ static JavaVM* g_vm = nullptr;
 static jclass g_bridgeClass = nullptr;
 static jmethodID g_onHapticMethod = nullptr;
 static jmethodID g_onQuitMethod = nullptr;
+static jmethodID g_onFirstFrameMethod = nullptr;
 
 static ANativeWindow* g_window = nullptr;
 static pthread_mutex_t g_windowMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -224,6 +225,25 @@ extern "C" void Android_BlitFrame(const uint32_t* screenBuffer, int width, int h
 
     ANativeWindow_unlockAndPost(g_window);
     pthread_mutex_unlock(&g_windowMutex);
+
+    static std::atomic<bool> s_firstFrameDispatched{false};
+    if (!s_firstFrameDispatched.exchange(true)) {
+        if (g_vm && g_bridgeClass && g_onFirstFrameMethod) {
+            JNIEnv* env = nullptr;
+            bool needsDetach = false;
+            if (g_vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
+                if (g_vm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+                    needsDetach = true;
+                }
+            }
+            if (env) {
+                env->CallStaticVoidMethod(g_bridgeClass, g_onFirstFrameMethod);
+                if (needsDetach) {
+                    g_vm->DetachCurrentThread();
+                }
+            }
+        }
+    }
 }
 
 extern "C" void Android_TriggerHaptic(int effectType)
@@ -338,6 +358,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /*reserved*/)
         g_bridgeClass = reinterpret_cast<jclass>(env->NewGlobalRef(localClass));
         g_onHapticMethod = env->GetStaticMethodID(g_bridgeClass, "onHapticEvent", "(I)V");
         g_onQuitMethod = env->GetStaticMethodID(g_bridgeClass, "onQuitEvent", "()V");
+        g_onFirstFrameMethod = env->GetStaticMethodID(g_bridgeClass, "onFirstFrameEvent", "()V");
     }
 
     return JNI_VERSION_1_6;
