@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "DoomPixel10XL"
+rootProject.name = "Doom"
 include(":app")

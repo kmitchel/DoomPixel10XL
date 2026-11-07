@@ -29,7 +29,7 @@ class DoomActivity : ComponentActivity() {
 
     private lateinit var surfaceView: DoomSurfaceView
     private lateinit var touchOverlay: DoomTouchOverlay
-    private lateinit var hapticsManager: PixelHapticsManager
+    private lateinit var hapticsManager: DoomHapticsManager
     private lateinit var wadManager: WadManager
 
     private var pendingExportSaveFile: java.io.File? = null
@@ -242,7 +242,7 @@ class DoomActivity : ComponentActivity() {
             }
         })
 
-        hapticsManager = PixelHapticsManager(this)
+        hapticsManager = DoomHapticsManager(this)
         DoomBridge.hapticListener = { typeId ->
             hapticsManager.triggerHaptic(typeId)
         }

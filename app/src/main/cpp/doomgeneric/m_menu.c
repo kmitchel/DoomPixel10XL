@@ -642,7 +642,7 @@ void M_SaveSelect(int choice)
     M_StringCopy(saveOldString,savegamestrings[choice], SAVESTRINGSIZE);
     if (!strcmp(savegamestrings[choice], EMPTYSTRING) || savegamestrings[choice][0] == '\0')
     {
-        DEH_snprintf(savegamestrings[choice], SAVESTRINGSIZE, "PIXEL SAVE %d", choice + 1);
+        DEH_snprintf(savegamestrings[choice], SAVESTRINGSIZE, "DOOM SAVE %d", choice + 1);
     }
     saveCharIndex = strlen(savegamestrings[choice]);
 }
@@ -1550,7 +1550,7 @@ boolean M_Responder (event_t* ev)
 	    saveStringEnter = 0;
 	    if (!savegamestrings[saveSlot][0])
 	    {
-		DEH_snprintf(savegamestrings[saveSlot], SAVESTRINGSIZE, "PIXEL SAVE %d", saveSlot + 1);
+		DEH_snprintf(savegamestrings[saveSlot], SAVESTRINGSIZE, "DOOM SAVE %d", saveSlot + 1);
 	    }
 	    M_DoSave(saveSlot);
 	    break;

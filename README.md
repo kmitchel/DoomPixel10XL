@@ -1,6 +1,6 @@
 # DOOM for Android
 
-An Android port of DOOM using the Chocolate DOOM / doomgeneric engine, a Kotlin touch interface, and native rendering and audio backends. The project is named for the Google Pixel 10 XL; the code targets Android 10 and later on ARM64 and x86-64.
+An Android port of DOOM using the Chocolate DOOM / doomgeneric engine, a Kotlin touch interface, and native rendering and audio backends. The code targets Android 10 and later on ARM64 and x86-64.
 
 ## Features
 
@@ -12,7 +12,7 @@ An Android port of DOOM using the Chocolate DOOM / doomgeneric engine, a Kotlin 
 - AAudio stereo output, up to 16 sound-effect channels, and a custom MUS music synthesizer. The synthesizer approximates instruments; it does not emulate an OPL chip.
 - Haptic effects with a vibration fallback on devices without the required composition primitives.
 - Bundled DOOM shareware data, a base-game IWAD selector/importer, and recovery/export tools for saves quarantined by earlier versions. Add-on PWAD loading is not supported by the importer.
-- The engine retains its 35 Hz simulation loop. Rendering and audio performance depend on the device; this repository includes no Pixel-specific benchmark results.
+- The engine retains its 35 Hz simulation loop. Rendering and audio performance depend on the device.
 
 ## Building
 

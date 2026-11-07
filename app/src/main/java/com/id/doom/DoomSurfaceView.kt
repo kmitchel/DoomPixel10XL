@@ -28,7 +28,7 @@ class DoomSurfaceView @JvmOverloads constructor(
             return
         }
 
-        // Maintain authentic 4:3 aspect ratio (pillarboxed horizontally on 20:9 Pixel 10 XL)
+        // Maintain authentic 4:3 aspect ratio (pillarboxed horizontally on widescreen displays)
         var targetW = (parentH * 4) / 3
         var targetH = parentH
         if (targetW > parentW) {
