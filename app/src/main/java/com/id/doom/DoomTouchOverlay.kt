@@ -408,33 +408,50 @@ class DoomTouchOverlay @JvmOverloads constructor(
         paintTextMed.setShadowLayer(2.5f * density, 0f, 1.2f * density, Color.argb(180, 0, 0, 0))
         paintTextSmall.setShadowLayer(2f * density, 0f, 1f * density, Color.argb(180, 0, 0, 0))
 
-        stickRadius = 75f * density
-        stickActiveRadius = 65f * density
+        // 4:3 DOOM Viewport and Letterbox Areas
+        val viewportW = (h * 4f / 3f).coerceAtMost(w.toFloat())
+        val viewportLeft = (w - viewportW) / 2f
+        val viewportRight = viewportLeft + viewportW
 
-        // 1. Virtual stick base at bottom-left
-        stickCenterBaseX = 118f * density
-        stickCenterBaseY = h - (112f * density)
+        stickRadius = 72f * density
+        stickActiveRadius = 62f * density
+
+        // 1. Virtual stick base: centered horizontally and vertically in the left letterbox area
+        if (viewportLeft > stickRadius * 1.5f) {
+            stickCenterBaseX = viewportLeft / 2f
+        } else {
+            stickCenterBaseX = (100f * density).coerceAtMost(w * 0.25f)
+        }
+        stickCenterBaseY = h / 2f
         stickOriginX = stickCenterBaseX
         stickOriginY = stickCenterBaseY
         stickThumbX = stickCenterBaseX
         stickThumbY = stickCenterBaseY
 
-        // 2. Action Buttons (Right-side vertically stacked tactical cluster):
+        // 2. Action Buttons: centered horizontally and vertically in the right letterbox area
         // Outer pod: rectCluster
         // Tier 1 (Top): rectUse (same height as FIRE)
-        // Tier 2 (Middle): rectFire (center horizontally aligned with left joystick stickCenterBaseY!)
+        // Tier 2 (Middle): rectFire (center horizontally aligned with left joystick at h / 2f)
         // Tier 3 (Bottom): rectSideLeft (◀) and rectSideRight (▶) (same height as FIRE)
-        // All three tiers share the exact same height (btnH = 58dp)
-        val rightMargin = w - (16f * density)
-        val clusterW = 110f * density
-        val colLeft = rightMargin - clusterW
-        val colRight = rightMargin
+        // All three tiers share the exact same height (btnH = 56dp)
+        val clusterW = 106f * density
+        val rightLetterboxW = w - viewportRight
+        val colLeft: Float
+        val colRight: Float
+        if (rightLetterboxW > clusterW) {
+            val rightLetterboxCenterX = viewportRight + (rightLetterboxW / 2f)
+            colLeft = rightLetterboxCenterX - (clusterW / 2f)
+            colRight = rightLetterboxCenterX + (clusterW / 2f)
+        } else {
+            colRight = w - (16f * density)
+            colLeft = colRight - clusterW
+        }
 
-        val btnH = 58f * density
+        val btnH = 56f * density
         val rowGap = 7f * density
         val podPad = 6f * density
 
-        // Tier 2 (Middle): FIRE button (center horizontally aligned with left joystick stickCenterBaseY)
+        // Tier 2 (Middle): FIRE button (centered at h / 2f, matching left joystick stickCenterBaseY)
         val fireCenterY = stickCenterBaseY
         val fireTop = fireCenterY - (btnH / 2f)
         val fireBottom = fireCenterY + (btnH / 2f)
@@ -474,7 +491,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
             strafeBottom
         )
 
-        // Pod Backdrop surrounding the vertical stack
+        // Pod Backdrop surrounding the vertical stack (centered at h / 2f)
         rectCluster.set(
             colLeft - podPad,
             useTop - podPad,
@@ -910,7 +927,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
 
         // 7. Left Virtual Stick (Touch anchor + progressive walking curve + anti-veer corridor)
         val hasStickPointer = pointerRoles.values.any { it is PointerRole.Stick }
-        if (!hasStickPointer && (distToStick <= stickRadius * 1.35f || (x < viewportLeft && y > height * 0.35f))) {
+        if (!hasStickPointer && (distToStick <= stickRadius * 1.45f || (x < viewportLeft && y > height * 0.15f))) {
             pointerRoles[pid] = PointerRole.Stick
             // Anchor origin to touch point so initial touch never causes accidental lurch or run!
             stickOriginX = x
