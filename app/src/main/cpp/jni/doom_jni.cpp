@@ -304,7 +304,6 @@ extern "C" void Android_OnQuit(void)
     }
 }
 
-extern "C" int joybspeed;
 extern "C" void M_SaveDefaults(void);
 extern "C" int Android_ComputeUiStateMask(void);
 extern "C" void I_GetEvent(void);
@@ -343,7 +342,6 @@ static void* GameThreadFunc(void* /*arg*/)
     int argc = static_cast<int>(argv.size());
 
     doomgeneric_Create(argc, argv.data());
-    joybspeed = 29; // Enable proportional full-speed analog range by default
     s_cachedUiStateMask.store(Android_ComputeUiStateMask(), std::memory_order_release);
 
     g_gameRunning = true;
@@ -575,13 +573,6 @@ Java_com_id_doom_DoomBridge_nativeSendLook(JNIEnv* /*env*/, jclass /*clazz*/, jf
     (void)deltaY;
     float sensScale = 0.55f + (static_cast<float>(mouseSensitivity) * 0.09f);
     Android_SendMouseMove(deltaX * 2.2f * sensScale, 0.0f);
-}
-
-JNIEXPORT void JNICALL
-Java_com_id_doom_DoomBridge_nativeSetAutoRun(JNIEnv* /*env*/, jclass /*clazz*/, jboolean enabled)
-{
-    // In DOOM, joybspeed >= 20 enables native Always Run without affecting shift key state
-    joybspeed = enabled ? 29 : 2;
 }
 
 JNIEXPORT void JNICALL

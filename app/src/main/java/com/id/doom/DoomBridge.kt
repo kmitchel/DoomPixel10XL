@@ -83,7 +83,6 @@ object DoomBridge {
     @JvmStatic external fun nativeSendKey(pressed: Int, doomKey: Int)
     @JvmStatic external fun nativeSendAnalog(forward: Float, strafe: Float, turn: Float)
     @JvmStatic external fun nativeSendLook(deltaX: Float, deltaY: Float)
-    @JvmStatic external fun nativeSetAutoRun(enabled: Boolean)
     @JvmStatic external fun nativeTriggerCheat(cheatId: Int)
     @JvmStatic external fun nativeSetUpscaleMode(mode: Int)
     @JvmStatic external fun nativeGetUpscaleMode(): Int

@@ -5,7 +5,7 @@ An Android port of DOOM using the Chocolate DOOM / doomgeneric engine, a Kotlin 
 ## Features
 
 - A centered 4:3 game surface with touch controls in the sidebars on wide displays.
-- A virtual movement stick, swipe turning, fire/use/strafe buttons, weapon selection, menu controls, and automap controls.
+- A virtual movement stick, swipe turning, fire/use/strafe buttons, weapon selection, menu controls, and automap controls. Stick deflection controls movement speed continuously: small movements walk, full deflection runs, and releasing stops. There is no run toggle.
 - Gamepad buttons and analog movement.
 - Three rendering modes: the base 640x400 framebuffer, 4x texture enlargement, or texture enlargement plus a 2x frame filter producing 1280x800 output. These are custom palette and edge-directed filters with fixed-strength sharpening, with no machine-learning model.
 - Optional font highlighting and shadows when filtering is enabled.
@@ -38,4 +38,4 @@ On Linux with a C++17 compiler and Bash:
 ./tests/native/run.sh
 ```
 
-This runs MUS parser regressions with undefined-behavior sanitization. The tests use inert Android/AAudio headers and do not test audio-device behavior or replace an Android build.
+This runs MUS parser and analog movement regressions with undefined-behavior sanitization. The tests use inert Android/AAudio headers and do not test audio-device behavior or replace an Android build.

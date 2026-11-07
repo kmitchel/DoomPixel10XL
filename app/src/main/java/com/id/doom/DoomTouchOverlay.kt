@@ -68,11 +68,11 @@ class DoomTouchOverlay @JvmOverloads constructor(
         color = Color.argb(185, 20, 105, 185)
         style = Paint.Style.FILL
     }
-    private val paintBtnRunOff = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val paintBtnDisabled = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(175, 90, 75, 30)
         style = Paint.Style.FILL
     }
-    private val paintBtnRunOn = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val paintBtnEnabled = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(210, 35, 160, 45)
         style = Paint.Style.FILL
     }
@@ -169,16 +169,12 @@ class DoomTouchOverlay @JvmOverloads constructor(
     private var stickRadius = 140f
     private var stickActiveRadius = 100f
 
-    // Auto-run toggle state (ON by default so full stick deflection runs and partial deflection walks)
-    private var autoRunEnabled = true
-
     // Action Buttons (Right side):
     // FIRE flanked by dedicated Strafe Left (◀ STRF) and Strafe Right (STRF ▶)
     private val rectFire = RectF()
     private val rectSideLeft = RectF()
     private val rectSideRight = RectF()
     private val rectUse = RectF()
-    private val rectRun = RectF()
 
     // Top Utility Buttons (Dynamically shown only when DOOM is listening for that button)
     private val rectEsc = RectF()
@@ -416,7 +412,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
 
         // 2. Action Buttons (Bottom Right):
         // [rectSideLeft] [rectFire] [rectSideRight] along the bottom row,
-        // with [rectUse] directly above [rectFire] and [rectRun] above [rectUse].
+        // with [rectUse] directly above [rectFire].
         val rightMargin = w - (14f * density)
         val bottomMargin = h - (18f * density)
         val sideW = 58f * density
@@ -455,15 +451,6 @@ class DoomTouchOverlay @JvmOverloads constructor(
             rectFire.top - (10f * density) - useH,
             rectFire.right,
             rectFire.top - (10f * density)
-        )
-
-        // RUN Toggle (bar directly above USE)
-        val runH = 34f * density
-        rectRun.set(
-            rectUse.left,
-            rectUse.top - (8f * density) - runH,
-            rectUse.right,
-            rectUse.top - (8f * density)
         )
 
         // 3. Center Prompt Buttons (For Y/N questions)
@@ -576,7 +563,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
                 1 -> "HD: TEX"
                 else -> "HD: OFF"
             }
-            val hdFill = if (upscaleMode > 0) paintBtnRunOn else paintBtnRunOff
+            val hdFill = if (upscaleMode > 0) paintBtnEnabled else paintBtnDisabled
             val hdStroke = if (upscaleMode > 0) paintStrokeGreen else paintStroke
             drawButton(canvas, rectUpscale, hdFill, hdStroke, hdLabel, paintTextSmall)
             drawButton(canvas, rectCheats, if (cheatsModalOpen) paintBtnPressed else paintBtnStrafe, paintStrokeGold, "CHEATS", paintTextSmall)
@@ -631,16 +618,6 @@ class DoomTouchOverlay @JvmOverloads constructor(
             paintStroke,
             "USE",
             paintTextLarge
-        )
-
-        // RUN Toggle (Above USE)
-        drawButton(
-            canvas,
-            rectRun,
-            if (autoRunEnabled) paintBtnRunOn else paintBtnRunOff,
-            if (autoRunEnabled) paintStrokeGreen else paintStrokeGold,
-            if (autoRunEnabled) "RUN: ON" else "RUN: OFF",
-            paintTextMed
         )
 
         // 5. Prompt Overlay (When DOOM prompts Y/N)
@@ -751,14 +728,6 @@ class DoomTouchOverlay @JvmOverloads constructor(
                     return
                 }
             }
-            return
-        }
-
-        // 1. Auto-Run Toggle Button
-        if (rectRun.contains(x, y)) {
-            autoRunEnabled = !autoRunEnabled
-            DoomBridge.onHapticEvent(1)
-            DoomBridge.nativeSetAutoRun(autoRunEnabled)
             return
         }
 
@@ -987,7 +956,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
         val horizDeadzone = if (kotlin.math.abs(normY) > 0.55f) 0.15f else 0.08f
         val normX = applyDeadzone(rawX, horizDeadzone)
 
-        // Rotate Mode: X-axis smoothly ROTATES, Y-axis proportionally moves forward/backward
+        // X turns; Y moves continuously from a slow walk to full running speed.
         DoomBridge.nativeSendAnalog(forward = normY, strafe = 0f, turn = normX)
     }
 
