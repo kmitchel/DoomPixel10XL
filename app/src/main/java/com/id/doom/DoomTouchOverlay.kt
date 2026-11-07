@@ -203,7 +203,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
     private val rectUpscale = RectF()
     private val rectCheats = RectF()
     private val rectWad = RectF()
-    private var upscaleMode = 2 // 2 = HD: AI+ (4x WAD + 1280x800 xBR+CAS), 1 = HD: TEX (4x WAD), 0 = HD: OFF
+    private var upscaleMode = 2 // 2 = textures + frame filter, 1 = textures only, 0 = off
 
     // Cheats Modal State & Bounds
     private var cheatsModalOpen = false
@@ -534,7 +534,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
 
         // 2. Version Watermark
         canvas.drawRoundRect(rectVersion, 6f * density, 6f * density, paintBtnFill)
-        canvas.drawText("DOOM v1.3.8 • 4:3 AI-HD (Pixel 10 XL)", rectVersion.centerX(), rectVersion.centerY() + (3.5f * density), paintTextVersion)
+        canvas.drawText("DOOM ${BuildConfig.VERSION_NAME} • 4:3", rectVersion.centerX(), rectVersion.centerY() + (3.5f * density), paintTextVersion)
 
         // 3. Top Utility Buttons (Only drawn when DOOM is listening for them)
         if (!rectEsc.isEmpty) {
@@ -572,7 +572,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
             drawButton(canvas, rectQuickLoad, if (isKeyHeld(DoomBridge.KEY_F9)) paintBtnPressed else paintBtnUse, paintStroke, "QLOAD", paintTextSmall)
             drawButton(canvas, rectGamma, if (isKeyHeld(DoomBridge.KEY_F11)) paintBtnPressed else paintBtnFill, paintStrokeGold, "GAMMA", paintTextSmall)
             val hdLabel = when (upscaleMode) {
-                2 -> "HD: AI+"
+                2 -> "HD: FULL"
                 1 -> "HD: TEX"
                 else -> "HD: OFF"
             }
@@ -862,7 +862,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
             return
         }
         if (rectUpscale.contains(x, y)) {
-            upscaleMode = (upscaleMode + 2) % 3 // Cycles 2 (AI+) -> 1 (TEX) -> 0 (OFF) -> 2 (AI+)
+            upscaleMode = (upscaleMode + 2) % 3 // Cycles 2 (FULL) -> 1 (TEX) -> 0 (OFF) -> 2 (FULL)
             DoomBridge.onHapticEvent(1)
             DoomBridge.nativeSetUpscaleMode(upscaleMode)
             return

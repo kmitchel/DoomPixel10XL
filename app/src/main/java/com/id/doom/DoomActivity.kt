@@ -1,6 +1,5 @@
 package com.id.doom
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -9,7 +8,6 @@ import android.util.Log
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
-import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.net.Uri
@@ -48,7 +46,7 @@ class DoomActivity : ComponentActivity() {
         }
     }
 
-    // Storage Access Framework contract to import external IWADs/PWADs (DOOM.WAD, DOOM2.WAD, etc.)
+    // Import base-game IWADs through the Storage Access Framework.
     private val openWadLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             val displayName = queryDisplayName(it)
@@ -230,11 +228,11 @@ class DoomActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. Configure Edge-to-Edge, Keep Screen On, and Camera Cutout for Pixel 10 XL
+        // Keep the game visible across the full landscape display.
         setupEdgeToEdge()
 
 
-        // 3. Intercept Android system Back gesture to toggle DOOM Menu instead of killing game
+        // Route the Android Back gesture to the DOOM menu.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 DoomBridge.nativeSendKey(1, DoomBridge.KEY_ESCAPE)
@@ -244,7 +242,6 @@ class DoomActivity : ComponentActivity() {
             }
         })
 
-        // 4. Initialize Haptics, Quit Callback, and WAD Management
         hapticsManager = PixelHapticsManager(this)
         DoomBridge.hapticListener = { typeId ->
             hapticsManager.triggerHaptic(typeId)
@@ -270,7 +267,7 @@ class DoomActivity : ComponentActivity() {
             wadManager.setupDefaultWad()
         }
 
-        // 5. Construct Layout: 4:3 Pillarboxed SurfaceView centered in OLED black root, TouchOverlay on top
+        // Center the 4:3 game surface beneath the touch controls.
         val rootLayout = FrameLayout(this).apply {
             setBackgroundColor(android.graphics.Color.BLACK)
             layoutParams = ViewGroup.LayoutParams(
@@ -305,7 +302,7 @@ class DoomActivity : ComponentActivity() {
             }
         }
 
-        // 6. Two-phase session-scoped crash guard:
+        // Two-phase session-scoped crash guard:
         // Phase 1: Query whether nativeInit will start a new thread (>0) or reconnect to a running one (0).
         // Durably persist crashed_on_boot = true via synchronous commit() BEFORE spawning the native thread.
         Log.i(TAG, "Initializing DOOM engine with IWAD: $iwadPath")
@@ -328,6 +325,7 @@ class DoomActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        heldGamepadButtons.clear()
         DoomBridge.nativeSetPaused(true)
     }
 
@@ -347,63 +345,36 @@ class DoomActivity : ComponentActivity() {
     }
 
 
-    // Physical Gamepad Support
+    private val heldGamepadButtons = mutableSetOf<Pair<Int, Int>>()
+
+    private fun gamepadKey(keyCode: Int): Int? = when (keyCode) {
+        KeyEvent.KEYCODE_BUTTON_A -> DoomBridge.KEY_USE
+        KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_R2 -> DoomBridge.KEY_FIRE
+        KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_L2 -> DoomBridge.KEY_RSHIFT
+        KeyEvent.KEYCODE_BUTTON_START -> DoomBridge.KEY_ESCAPE
+        KeyEvent.KEYCODE_BUTTON_SELECT -> DoomBridge.KEY_TAB
+        else -> null
+    }
+
+    private fun handleGamepadKey(keyCode: Int, event: KeyEvent?, pressed: Boolean): Boolean {
+        if (event == null || (!event.isFromSource(InputDevice.SOURCE_GAMEPAD) &&
+                !event.isFromSource(InputDevice.SOURCE_JOYSTICK))) return false
+        val doomKey = gamepadKey(keyCode) ?: return false
+        val wasHeld = heldGamepadButtons.any { gamepadKey(it.second) == doomKey }
+        val button = event.deviceId to keyCode
+        if (pressed) heldGamepadButtons.add(button) else heldGamepadButtons.remove(button)
+        val isHeld = heldGamepadButtons.any { gamepadKey(it.second) == doomKey }
+        // Ignore key repeats and keep FIRE/RUN held while either shoulder button is down.
+        if (wasHeld != isHeld) DoomBridge.nativeSendKey(if (isHeld) 1 else 0, doomKey)
+        return true
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (event?.source?.and(InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
-            event?.source?.and(InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_BUTTON_A -> {
-                    DoomBridge.nativeSendKey(1, DoomBridge.KEY_USE)
-                    return true
-                }
-                KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_R2 -> {
-                    DoomBridge.nativeSendKey(1, DoomBridge.KEY_FIRE)
-                    return true
-                }
-                KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_L2 -> {
-                    DoomBridge.nativeSendKey(1, DoomBridge.KEY_RSHIFT)
-                    return true
-                }
-                KeyEvent.KEYCODE_BUTTON_START -> {
-                    DoomBridge.nativeSendKey(1, DoomBridge.KEY_ESCAPE)
-                    return true
-                }
-                KeyEvent.KEYCODE_BUTTON_SELECT -> {
-                    DoomBridge.nativeSendKey(1, DoomBridge.KEY_TAB)
-                    return true
-                }
-            }
-        }
-        return super.onKeyDown(keyCode, event)
+        return handleGamepadKey(keyCode, event, true) || super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
-        if (event?.source?.and(InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
-            event?.source?.and(InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_BUTTON_A -> {
-                    DoomBridge.nativeSendKey(0, DoomBridge.KEY_USE)
-                    return true
-                }
-                KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_R2 -> {
-                    DoomBridge.nativeSendKey(0, DoomBridge.KEY_FIRE)
-                    return true
-                }
-                KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_L2 -> {
-                    DoomBridge.nativeSendKey(0, DoomBridge.KEY_RSHIFT)
-                    return true
-                }
-                KeyEvent.KEYCODE_BUTTON_START -> {
-                    DoomBridge.nativeSendKey(0, DoomBridge.KEY_ESCAPE)
-                    return true
-                }
-                KeyEvent.KEYCODE_BUTTON_SELECT -> {
-                    DoomBridge.nativeSendKey(0, DoomBridge.KEY_TAB)
-                    return true
-                }
-            }
-        }
-        return super.onKeyUp(keyCode, event)
+        return handleGamepadKey(keyCode, event, false) || super.onKeyUp(keyCode, event)
     }
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {

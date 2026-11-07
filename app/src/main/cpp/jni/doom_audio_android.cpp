@@ -3,6 +3,7 @@
 #include <pthread.h>
 #include <cmath>
 #include <cstdint>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -176,7 +177,7 @@ static void TriggerMusNoteLocked(int chan, int note, int velocity) {
     v.patch = g_chanPatch[chan];
     v.phase = 0.0f;
     v.modPhase = 0.0f;
-    v.baseFreq = isPerc ? MidiNoteToFreq(static_cast<float>(note)) : MidiNoteToFreq(static_cast<float>(note));
+    v.baseFreq = MidiNoteToFreq(static_cast<float>(note));
     v.env = 0.05f;
     v.filterState = 0.0f;
     v.age = 0;
@@ -204,7 +205,7 @@ static void AdvanceMusSequencerLocked() {
         return;
     }
     const auto& buf = g_currentSong->data;
-    const size_t totalLen = buf.size();
+    const size_t totalLen = static_cast<size_t>(g_currentSong->scoreStart) + g_currentSong->scoreLen;
     int safetyCount = 0;
 
     while (g_musDelaySamples <= 0 && safetyCount++ < 512) {
@@ -292,10 +293,23 @@ static void AdvanceMusSequencerLocked() {
         // If high bit is set, a variable-length delay follows this event
         if (desc & 0x80) {
             uint32_t delayTicks = 0;
+            bool complete = false;
+            constexpr uint32_t maxDelayTicks = INT_MAX / kSamplesPerMusTick;
             while (g_musCursor < totalLen) {
                 uint8_t b = buf[g_musCursor++];
+                if (delayTicks > (maxDelayTicks - (b & 0x7F)) / 128) {
+                    g_musicPlaying = false;
+                    return;
+                }
                 delayTicks = (delayTicks << 7) | (b & 0x7F);
-                if ((b & 0x80) == 0) break;
+                if ((b & 0x80) == 0) {
+                    complete = true;
+                    break;
+                }
+            }
+            if (!complete) {
+                g_musicPlaying = false;
+                return;
             }
             g_musDelaySamples += static_cast<int>(delayTicks * kSamplesPerMusTick);
         }
@@ -800,7 +814,8 @@ static void* DG_Music_RegisterSong(void* data, int len) {
 
     uint16_t scoreLen = static_cast<uint16_t>(bytes[4] | (bytes[5] << 8));
     uint16_t scoreStart = static_cast<uint16_t>(bytes[6] | (bytes[7] << 8));
-    if (scoreStart >= len) {
+    if (scoreStart < 16 || scoreLen == 0 ||
+        static_cast<size_t>(scoreStart) + scoreLen > static_cast<size_t>(len)) {
         return nullptr;
     }
 

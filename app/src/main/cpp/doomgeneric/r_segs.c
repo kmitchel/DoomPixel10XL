@@ -278,7 +278,7 @@ void R_RenderSegLoop (void)
 	// draw the wall tiers
 	if (midtexture)
 	{
-	    extern int g_aiUpscaleMode;
+	    extern int g_upscaleMode;
 	    extern byte *dc_source_prev;
 	    extern byte *dc_source_next;
 	    // single sided line
@@ -286,7 +286,7 @@ void R_RenderSegLoop (void)
 	    dc_yh = yh;
 	    dc_texturemid = rw_midtexturemid;
 	    dc_source = R_GetColumn(midtexture,texturecolumn);
-	    if (g_aiUpscaleMode > 0 && dc_iscale < FRACUNIT)
+	    if (g_upscaleMode > 0 && dc_iscale < FRACUNIT)
 	    {
 		dc_source_prev = R_GetColumn(midtexture, texturecolumn - 1);
 		dc_source_next = R_GetColumn(midtexture, texturecolumn + 1);
@@ -309,14 +309,14 @@ void R_RenderSegLoop (void)
 
 		if (mid >= yl)
 		{
-		    extern int g_aiUpscaleMode;
+		    extern int g_upscaleMode;
 		    extern byte *dc_source_prev;
 		    extern byte *dc_source_next;
 		    dc_yl = yl;
 		    dc_yh = mid;
 		    dc_texturemid = rw_toptexturemid;
 		    dc_source = R_GetColumn(toptexture,texturecolumn);
-		    if (g_aiUpscaleMode > 0 && dc_iscale < FRACUNIT)
+		    if (g_upscaleMode > 0 && dc_iscale < FRACUNIT)
 		    {
 			dc_source_prev = R_GetColumn(toptexture, texturecolumn - 1);
 			dc_source_next = R_GetColumn(toptexture, texturecolumn + 1);
@@ -346,7 +346,7 @@ void R_RenderSegLoop (void)
 		
 		if (mid <= yh)
 		{
-		    extern int g_aiUpscaleMode;
+		    extern int g_upscaleMode;
 		    extern byte *dc_source_prev;
 		    extern byte *dc_source_next;
 		    dc_yl = mid;
@@ -354,7 +354,7 @@ void R_RenderSegLoop (void)
 		    dc_texturemid = rw_bottomtexturemid;
 		    dc_source = R_GetColumn(bottomtexture,
 					    texturecolumn);
-		    if (g_aiUpscaleMode > 0 && dc_iscale < FRACUNIT)
+		    if (g_upscaleMode > 0 && dc_iscale < FRACUNIT)
 		    {
 			dc_source_prev = R_GetColumn(bottomtexture, texturecolumn - 1);
 			dc_source_next = R_GetColumn(bottomtexture, texturecolumn + 1);

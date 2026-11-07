@@ -911,11 +911,11 @@ void R_PrecacheLevel (void)
 }
 
 // ============================================================================
-// AI / Edge-Directed WAD Asset Super-Resolution (4x Flats & Wall Columns)
+// Palette-based texture enlargement (4x flats and wall columns)
 // ============================================================================
 
-// 0 = Classic 1993 (1x), 1 = 4x WAD Textures Only, 2 = Full HD (4x WAD + 1280x800 xBR+CAS)
-int g_aiUpscaleMode = 2;
+// 0 = Classic 1993 (1x), 1 = 4x WAD Textures Only, 2 = 4x textures + 1280x800 frame filtering
+int g_upscaleMode = 2;
 
 byte r_pal_blend50[256][256];
 byte r_pal_blend75[256][256];
@@ -929,7 +929,7 @@ static int R_ColorDistSq(const byte *pal, int c1, int c2)
     int dr = (int)pal[c1 * 3 + 0] - (int)pal[c2 * 3 + 0];
     int dg = (int)pal[c1 * 3 + 1] - (int)pal[c2 * 3 + 1];
     int db = (int)pal[c1 * 3 + 2] - (int)pal[c2 * 3 + 2];
-    // Perceptual YUV-weighted RGB distance
+    // Weighted squared RGB distance
     return (dr * dr * 3) + (dg * dg * 4) + (db * db * 2);
 }
 
@@ -1003,7 +1003,7 @@ void R_InitUpscaleTables (void)
     }
 }
 
-// Seamless toroidal 2x Edge-Directed (xBR/EPX + Perceptual Shading) tile upscaler
+// Custom edge-directed 2x tile filter with wrapping at texture boundaries
 static void R_UpscaleTile2x(const byte *src, byte *dst, int N)
 {
     int mask = N - 1;

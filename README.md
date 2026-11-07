@@ -1,35 +1,41 @@
-# DOOM (1993) for Google Pixel 10 XL
+# DOOM for Android
 
-A high-performance Android port of classic id Software DOOM (1993) optimized specifically for modern flagship hardware like the Google Pixel 10 XL (Tensor G-series).
+An Android port of DOOM using the Chocolate DOOM / doomgeneric engine, a Kotlin touch interface, and native rendering and audio backends. The project is named for the Google Pixel 10 XL; the code targets Android 10 and later on ARM64 and x86-64.
 
 ## Features
 
-- **Strict 4:3 Aspect Ratio:** Maintained on widescreen 20:9 displays with balanced touch controls in the letterboxed sidebars.
-- **Ultra-Low-Latency Audio Engine:** AAudio non-blocking real-time PCM playback with OPL2/FM-inspired synth voice synthesis and 16-channel digital SFX mixing.
-- **Classic 35 Hz Engine Tickrate with Smooth Android Sync:** Deterministic 35 Hz engine simulation preserving vanilla game physics and demo compatibility.
-- **Stage 1 AI Texture Super-Sampling:** Real-time 4× super-sampling of wall and flat textures (floors & ceilings) using edge-directed xBR and perceptual colormap blending.
-- **Stage 2 Edge-Directed Reconstruction & CAS:** Real-time 2× xBR contour reconstruction (640×400 → 1280×800) followed by Contrast-Adaptive Sharpening (CAS).
-- **Enhanced In-Game Typography:** Specular beveled in-game fonts (`STCFN*`) with translucent drop-shadows and 2-stage xBR contour smoothing.
-- **Tactile On-Screen Controls:**
-  - Responsive analog virtual stick (Rotate-only) with smart dual-zone origin and dynamic leash.
-  - Dedicated flanking strafe buttons (`◀ STRF` / `STRF ▶`) on either side of `FIRE`.
-  - Context-aware dynamic utility buttons (`MENU`, `ENTER`, `BACK`, `MAP`, `Y/N`).
-  - Automap navigation controls (`Z+`, `Z-`, `FLW`, `GRID`, `MRK`, `CLR`).
-  - In-game Cheats & Level Warp modal dialog.
-  - In-game Custom `.WAD` file loader, SAF importer, and Recovered Saves Browser.
-
-## Architecture
-
-- **Engine:** Chocolate DOOM / doomgeneric core in C99.
-- **Android Layer:** Kotlin + Android NDK (C++17, Clang with `-O3` optimizations).
-- **Target SDK:** Android 15 (API 35), Min SDK: Android 10 (API 29), 64-bit ABI (`arm64-v8a`, `x86_64`).
+- A centered 4:3 game surface with touch controls in the sidebars on wide displays.
+- A virtual movement stick, swipe turning, fire/use/strafe buttons, weapon selection, menu controls, and automap controls.
+- Gamepad buttons and analog movement.
+- Three rendering modes: the base 640x400 framebuffer, 4x texture enlargement, or texture enlargement plus a 2x frame filter producing 1280x800 output. These are custom palette and edge-directed filters with fixed-strength sharpening, with no machine-learning model.
+- Optional font highlighting and shadows when filtering is enabled.
+- AAudio stereo output, up to 16 sound-effect channels, and a custom MUS music synthesizer. The synthesizer approximates instruments; it does not emulate an OPL chip.
+- Haptic effects with a vibration fallback on devices without the required composition primitives.
+- Bundled DOOM shareware data, a base-game IWAD selector/importer, and recovery/export tools for saves quarantined by earlier versions. Add-on PWAD loading is not supported by the importer.
+- The engine retains its 35 Hz simulation loop. Rendering and audio performance depend on the device; this repository includes no Pixel-specific benchmark results.
 
 ## Building
+
+Use JDK 17 and an Android SDK installation. Set `ANDROID_HOME` or create an untracked `local.properties` with `sdk.dir` pointing to the SDK.
+
+The project uses Android Gradle Plugin 8.5.2, Gradle 8.7, SDK 35, NDK 27.0.12077973, and CMake 3.22.1. Gradle may download missing SDK components when the SDK is writable and its licenses are accepted.
 
 ```bash
 ./gradlew assembleDebug
 ```
 
-## Licenses & Attribution
+The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
-Licensed under the **GNU General Public License version 2 (GPL-2.0)**. See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md) for full licensing, trademark, and open-source attribution details.
+## Licenses and attribution
+
+Licensed under GPL-2.0. See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md) for licensing, trademark, and attribution details.
+
+## Host regression checks
+
+On Linux with a C++17 compiler and Bash:
+
+```bash
+./tests/native/run.sh
+```
+
+This runs MUS parser regressions with undefined-behavior sanitization. The tests use inert Android/AAudio headers and do not test audio-device behavior or replace an Android build.
