@@ -151,13 +151,6 @@ class DoomTouchOverlay @JvmOverloads constructor(
         letterSpacing = 0.06f
         setShadowLayer(3.5f, 0f, 1.5f, Color.BLACK)
     }
-    private val paintTextVersion = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
-        color = Color.argb(210, 225, 225, 225)
-        textAlign = Paint.Align.CENTER
-        typeface = hudTypeface
-        letterSpacing = 0.04f
-        setShadowLayer(2.5f, 0f, 1f, Color.BLACK)
-    }
 
     // Responsive Virtual Stick (Left side) with Dynamic Leash
     private var stickCenterBaseX = 0f
@@ -229,8 +222,6 @@ class DoomTouchOverlay @JvmOverloads constructor(
     private val rectPromptYes = RectF()
     private val rectPromptNo = RectF()
 
-    // Top Version Indicator
-    private val rectVersion = RectF()
 
     // Weapon buttons (Top bar — dynamically shown only during level gameplay for owned weapons)
     private val weaponRects = Array(7) { RectF() }
@@ -382,7 +373,6 @@ class DoomTouchOverlay @JvmOverloads constructor(
         paintTextMed.textSize = 13f * density
         paintTextSmall.textSize = 11.5f * density
         paintTextPill.textSize = 11f * density
-        paintTextVersion.textSize = 9.5f * density
 
         paintBase.strokeWidth = 3f * density
         paintThumbBorder.strokeWidth = 2.5f * density
@@ -402,13 +392,6 @@ class DoomTouchOverlay @JvmOverloads constructor(
         stickThumbX = stickCenterBaseX
         stickThumbY = stickCenterBaseY
 
-        // Version Watermark (Bottom Center so it doesn't crowd top bar)
-        rectVersion.set(
-            w / 2f - (78f * density),
-            h - (22f * density),
-            w / 2f + (78f * density),
-            h - (4f * density)
-        )
 
         // 2. Action Buttons (Bottom Right):
         // [rectSideLeft] [rectFire] [rectSideRight] along the bottom row,
@@ -519,10 +502,6 @@ class DoomTouchOverlay @JvmOverloads constructor(
         canvas.drawCircle(stickThumbX, stickThumbY, stickRadius * 0.38f, paintThumb)
         canvas.drawCircle(stickThumbX, stickThumbY, stickRadius * 0.38f, paintThumbBorder)
 
-        // 2. Version Watermark
-        canvas.drawRoundRect(rectVersion, 6f * density, 6f * density, paintBtnFill)
-        canvas.drawText("DOOM ${BuildConfig.VERSION_NAME} • 4:3", rectVersion.centerX(), rectVersion.centerY() + (3.5f * density), paintTextVersion)
-
         // 3. Top Utility Buttons (Only drawn when DOOM is listening for them)
         if (!rectEsc.isEmpty) {
             drawButton(canvas, rectEsc, if (isKeyHeld(DoomBridge.KEY_ESCAPE)) paintBtnPressed else paintBtnFill, paintStroke, "MENU", paintTextMed)
@@ -598,16 +577,16 @@ class DoomTouchOverlay @JvmOverloads constructor(
             rectSideLeft,
             if (isKeyHeld(DoomBridge.KEY_STRAFE_L)) paintBtnPressed else paintBtnStrafe,
             paintStroke,
-            "◀ STRF",
-            paintTextSmall
+            "◀",
+            paintTextMed
         )
         drawButton(
             canvas,
             rectSideRight,
             if (isKeyHeld(DoomBridge.KEY_STRAFE_R)) paintBtnPressed else paintBtnStrafe,
             paintStroke,
-            "STRF ▶",
-            paintTextSmall
+            "▶",
+            paintTextMed
         )
 
         // USE (Directly above FIRE — opens doors/switches, never opens menu)
