@@ -557,8 +557,10 @@ void G_BuildTiccmd (ticcmd_t* cmd, int maketic)
         float aFwd = 0.0f, aStrafe = 0.0f, aTurn = 0.0f;
         Android_GetAnalogMove(&aFwd, &aStrafe, &aTurn);
 
-        forward += (int)(aFwd * (float)forwardmove[speed]);
-        side += (int)(aStrafe * (float)sidemove[speed]);
+        // Stick deflection covers the full movement range independently of
+        // digital run bindings: half forward is walking speed, full is running.
+        forward += (int)(aFwd * (float)forwardmove[1]);
+        side += (int)(aStrafe * (float)sidemove[1]);
 
         if (aTurn != 0.0f)
         {

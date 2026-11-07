@@ -83,7 +83,6 @@ object DoomBridge {
     @JvmStatic external fun nativeSendKey(pressed: Int, doomKey: Int)
     @JvmStatic external fun nativeSendAnalog(forward: Float, strafe: Float, turn: Float)
     @JvmStatic external fun nativeSendLook(deltaX: Float, deltaY: Float)
-    @JvmStatic external fun nativeSetAutoRun(enabled: Boolean)
     @JvmStatic external fun nativeTriggerCheat(cheatId: Int)
     @JvmStatic external fun nativeSetUpscaleMode(mode: Int)
     @JvmStatic external fun nativeGetUpscaleMode(): Int
@@ -91,6 +90,7 @@ object DoomBridge {
     @JvmStatic external fun nativeIsPromptActive(): Boolean
     @JvmStatic external fun nativeGetUiStateMask(): Int
     @JvmStatic external fun nativeTouchScreen(normX: Float, normY: Float)
+    @JvmStatic external fun nativeDragMenu(normX: Float)
     @JvmStatic external fun nativeSetPaused(paused: Boolean)
     @JvmStatic external fun nativeStop()
 }

@@ -1625,7 +1625,31 @@ boolean M_Responder (event_t* ev)
 	return true;
     }
 
-    // F-Keys
+    // These shortcuts are also exposed by the Android overlay while the
+    // menu is open. Keep save-name entry and confirmation handling above them.
+    if (key == key_menu_qsave)
+    {
+        S_StartSound(NULL, sfx_swtchn);
+        M_QuickSave();
+        return true;
+    }
+    else if (key == key_menu_qload)
+    {
+        S_StartSound(NULL, sfx_swtchn);
+        M_QuickLoad();
+        return true;
+    }
+    else if (key == key_menu_gamma)
+    {
+        usegamma++;
+        if (usegamma > 4)
+            usegamma = 0;
+        players[consoleplayer].message = DEH_String(gammamsg[usegamma]);
+        I_SetPalette(W_CacheLumpName(DEH_String("PLAYPAL"), PU_CACHE));
+        return true;
+    }
+
+    // Other F-keys remain gameplay shortcuts.
     if (!menuactive)
     {
 	if (key == key_menu_decscreen)      // Screen size down
@@ -1685,12 +1709,6 @@ boolean M_Responder (event_t* ev)
 	    S_StartSound(NULL,sfx_swtchn);
 	    return true;
         }
-        else if (key == key_menu_qsave)    // Quicksave
-        {
-	    S_StartSound(NULL,sfx_swtchn);
-	    M_QuickSave();
-	    return true;
-        }
         else if (key == key_menu_endgame)  // End game
         {
 	    S_StartSound(NULL,sfx_swtchn);
@@ -1703,27 +1721,12 @@ boolean M_Responder (event_t* ev)
 	    S_StartSound(NULL,sfx_swtchn);
 	    return true;
         }
-        else if (key == key_menu_qload)    // Quickload
-        {
-	    S_StartSound(NULL,sfx_swtchn);
-	    M_QuickLoad();
-	    return true;
-        }
         else if (key == key_menu_quit)     // Quit DOOM
         {
 	    S_StartSound(NULL,sfx_swtchn);
 	    M_QuitDOOM(0);
 	    return true;
         }
-        else if (key == key_menu_gamma)    // gamma toggle
-        {
-	    usegamma++;
-	    if (usegamma > 4)
-		usegamma = 0;
-	    players[consoleplayer].message = DEH_String(gammamsg[usegamma]);
-            I_SetPalette (W_CacheLumpName (DEH_String("PLAYPAL"),PU_CACHE));
-	    return true;
-	}
     }
 
     // Pop-up menu?
@@ -2036,9 +2039,11 @@ void M_SetupNextMenu(menu_t *menudef)
 //
 // M_Ticker
 //
-static volatile int s_touchPending = 0;
-static volatile int s_touchX = 0;
-static volatile int s_touchY = 0;
+// Keep the press separate from coalesced drag updates so a move cannot replace it.
+static unsigned int s_pendingTouch = 0xffffffffu;
+static int s_pendingMenuDragX = -1;
+static menu_t *s_touchSliderMenu = NULL;
+static int s_touchSliderItem = -1;
 static volatile int s_pendingCheatId = -1;
 
 extern int am_cycle_cheating(void);
@@ -2200,8 +2205,22 @@ void Android_TriggerCheat(int cheatId)
     __atomic_store_n(&s_pendingCheatId, cheatId, __ATOMIC_RELEASE);
 }
 
-static void M_ProcessTouchOnGameThread(int x, int y)
+static void M_ProcessTouchOnGameThread(int x, int y, boolean dragging)
 {
+    if (dragging)
+    {
+        if (!menuactive || messageToPrint || saveStringEnter ||
+            currentMenu != s_touchSliderMenu || s_touchSliderItem < 0)
+            return;
+        // A slider gesture stays on its initial row even if the finger drifts vertically.
+        y = currentMenu->y * 2 + s_touchSliderItem * 32;
+    }
+    else
+    {
+        s_touchSliderMenu = NULL;
+        s_touchSliderItem = -1;
+    }
+
     if (!menuactive)
     {
         if (gamestate == GS_INTERMISSION)
@@ -2286,6 +2305,8 @@ static void M_ProcessTouchOnGameThread(int x, int y)
                 {
                     if (currentMenu->menuitems[itemOn].status == 2)
                     {
+                        s_touchSliderMenu = currentMenu;
+                        s_touchSliderItem = itemOn;
                         // Direct proportional thermometer positioning based on touch X in 320x200 space
                         int x320 = x / 2;
                         int barStartX = currentMenu->x + 8;
@@ -2355,19 +2376,28 @@ void M_Ticker (void)
         M_ExecuteCheatOnGameThread(cid);
     }
 
-    if (__atomic_exchange_n(&s_touchPending, 0, __ATOMIC_ACQ_REL))
+    unsigned int point = __atomic_exchange_n(&s_pendingTouch, 0xffffffffu, __ATOMIC_ACQ_REL);
+    if (point != 0xffffffffu)
     {
-        int tx = __atomic_load_n(&s_touchX, __ATOMIC_RELAXED);
-        int ty = __atomic_load_n(&s_touchY, __ATOMIC_RELAXED);
-        M_ProcessTouchOnGameThread(tx, ty);
+        M_ProcessTouchOnGameThread(point & 0xffffu, point >> 16, false);
+    }
+    int dragX = __atomic_exchange_n(&s_pendingMenuDragX, -1, __ATOMIC_ACQ_REL);
+    if (dragX >= 0)
+    {
+        M_ProcessTouchOnGameThread(dragX, 0, true);
     }
 }
 
 void M_TouchAt(int x, int y)
 {
-    __atomic_store_n(&s_touchX, x, __ATOMIC_RELAXED);
-    __atomic_store_n(&s_touchY, y, __ATOMIC_RELAXED);
-    __atomic_store_n(&s_touchPending, 1, __ATOMIC_RELEASE);
+    unsigned int point = ((unsigned int)y << 16) | ((unsigned int)x & 0xffffu);
+    __atomic_store_n(&s_pendingMenuDragX, -1, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_pendingTouch, point, __ATOMIC_RELEASE);
+}
+
+void M_DragMenuAt(int x)
+{
+    __atomic_store_n(&s_pendingMenuDragX, x, __ATOMIC_RELEASE);
 }
 
 int Android_ComputeUiStateMask(void)
