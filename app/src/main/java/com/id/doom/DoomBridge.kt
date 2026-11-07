@@ -53,7 +53,8 @@ object DoomBridge {
     var hapticListener: ((Int) -> Unit)? = null
     var quitListener: (() -> Unit)? = null
     var wadPickerListener: (() -> Unit)? = null
-    var firstFrameListener: (() -> Unit)? = null
+    @Volatile
+    var firstFrameListener: ((Int) -> Unit)? = null
 
     @JvmStatic
     fun onHapticEvent(effectType: Int) {
@@ -66,8 +67,8 @@ object DoomBridge {
     }
 
     @JvmStatic
-    fun onFirstFrameEvent() {
-        firstFrameListener?.invoke()
+    fun onFirstFrameEvent(sessionId: Int) {
+        firstFrameListener?.invoke(sessionId)
     }
 
     fun requestWadPicker() {
@@ -75,7 +76,7 @@ object DoomBridge {
     }
 
     // Native JNI functions
-    @JvmStatic external fun nativeInit(wadPath: String, saveDir: String)
+    @JvmStatic external fun nativeInit(wadPath: String, saveDir: String): Int
     @JvmStatic external fun nativeSetSurface(surface: Surface)
     @JvmStatic external fun nativeSurfaceDestroyed()
     @JvmStatic external fun nativeSendKey(pressed: Int, doomKey: Int)

@@ -178,17 +178,22 @@ class DoomActivity : ComponentActivity() {
         rootLayout.addView(touchOverlay)
         setContentView(rootLayout)
 
-        DoomBridge.firstFrameListener = {
+        DoomBridge.firstFrameListener = { frameSession ->
             runOnUiThread {
-                Log.i(TAG, "Native engine rendered first frame successfully — disarming crash guard")
+                Log.i(TAG, "Native engine rendered first frame successfully for session $frameSession — disarming crash guard")
                 recoveryPrefs.edit().putBoolean("crashed_on_boot", false).apply()
             }
         }
 
-        // 6. Launch native engine thread with crash guard
-        Log.i(TAG, "Launching DOOM engine with IWAD: $iwadPath")
-        recoveryPrefs.edit().putBoolean("crashed_on_boot", true).apply()
-        DoomBridge.nativeInit(iwadPath, wadManager.saveDirectory.absolutePath)
+        // 6. Launch native engine thread with session-scoped crash guard
+        Log.i(TAG, "Initializing DOOM engine with IWAD: $iwadPath")
+        val sessionId = DoomBridge.nativeInit(iwadPath, wadManager.saveDirectory.absolutePath)
+        if (sessionId > 0) {
+            Log.i(TAG, "Spawned new DOOM engine thread (session $sessionId) — arming crash guard")
+            recoveryPrefs.edit().putBoolean("crashed_on_boot", true).apply()
+        } else {
+            Log.i(TAG, "Reconnected to existing running DOOM engine thread — crash guard remains disarmed")
+        }
     }
 
     override fun onResume() {

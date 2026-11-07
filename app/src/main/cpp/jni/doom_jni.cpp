@@ -31,6 +31,8 @@ static pthread_t g_gameThread = 0;
 static std::atomic<bool> g_threadStarted{false};
 static std::atomic<bool> g_gameRunning{false};
 static std::atomic<bool> g_gamePaused{false};
+static std::atomic<int> s_engineSessionId{0};
+static std::atomic<int> s_dispatchedSessionId{0};
 static std::string g_wadPath;
 static std::string g_saveDir;
 
@@ -226,8 +228,8 @@ extern "C" void Android_BlitFrame(const uint32_t* screenBuffer, int width, int h
     ANativeWindow_unlockAndPost(g_window);
     pthread_mutex_unlock(&g_windowMutex);
 
-    static std::atomic<bool> s_firstFrameDispatched{false};
-    if (!s_firstFrameDispatched.exchange(true)) {
+    int currentSession = s_engineSessionId.load(std::memory_order_relaxed);
+    if (currentSession > 0 && s_dispatchedSessionId.load(std::memory_order_relaxed) != currentSession) {
         if (g_vm && g_bridgeClass && g_onFirstFrameMethod) {
             JNIEnv* env = nullptr;
             bool needsDetach = false;
@@ -236,8 +238,15 @@ extern "C" void Android_BlitFrame(const uint32_t* screenBuffer, int width, int h
                     needsDetach = true;
                 }
             }
-            if (env) {
-                env->CallStaticVoidMethod(g_bridgeClass, g_onFirstFrameMethod);
+            if (env && !env->ExceptionCheck()) {
+                env->CallStaticVoidMethod(g_bridgeClass, g_onFirstFrameMethod, (jint)currentSession);
+                if (!env->ExceptionCheck()) {
+                    s_dispatchedSessionId.store(currentSession, std::memory_order_relaxed);
+                    LOGI("First frame event successfully dispatched for session %d", currentSession);
+                } else {
+                    LOGW("Exception during onFirstFrameEvent for session %d", currentSession);
+                    env->ExceptionClear();
+                }
                 if (needsDetach) {
                     g_vm->DetachCurrentThread();
                 }
@@ -358,19 +367,23 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /*reserved*/)
         g_bridgeClass = reinterpret_cast<jclass>(env->NewGlobalRef(localClass));
         g_onHapticMethod = env->GetStaticMethodID(g_bridgeClass, "onHapticEvent", "(I)V");
         g_onQuitMethod = env->GetStaticMethodID(g_bridgeClass, "onQuitEvent", "()V");
-        g_onFirstFrameMethod = env->GetStaticMethodID(g_bridgeClass, "onFirstFrameEvent", "()V");
+        g_onFirstFrameMethod = env->GetStaticMethodID(g_bridgeClass, "onFirstFrameEvent", "(I)V");
     }
 
     return JNI_VERSION_1_6;
 }
 
-JNIEXPORT void JNICALL
+JNIEXPORT jint JNICALL
 Java_com_id_doom_DoomBridge_nativeInit(JNIEnv* env, jclass /*clazz*/, jstring wadPath, jstring saveDir)
 {
     if (g_threadStarted.exchange(true)) {
         g_gamePaused = false;
-        return;
+        LOGI("DOOM engine already running — resumed session %d", s_engineSessionId.load());
+        return 0; // 0 indicates reconnected to existing session
     }
+
+    int session = ++s_engineSessionId;
+    s_dispatchedSessionId.store(0);
 
     const char* cWad = env->GetStringUTFChars(wadPath, nullptr);
     const char* cSave = env->GetStringUTFChars(saveDir, nullptr);
@@ -379,7 +392,9 @@ Java_com_id_doom_DoomBridge_nativeInit(JNIEnv* env, jclass /*clazz*/, jstring wa
     env->ReleaseStringUTFChars(wadPath, cWad);
     env->ReleaseStringUTFChars(saveDir, cSave);
 
+    LOGI("Spawning new DOOM engine thread for session %d", session);
     pthread_create(&g_gameThread, nullptr, GameThreadFunc, nullptr);
+    return static_cast<jint>(session);
 }
 
 JNIEXPORT void JNICALL
