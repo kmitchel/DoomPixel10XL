@@ -211,7 +211,19 @@ class DoomTouchOverlay @JvmOverloads constructor(
     private val rectUpscale = RectF()
     private val rectCheats = RectF()
     private val rectWad = RectF()
+    private val rectUpdate = RectF()
     private var upscaleMode = 2 // 2 = textures + frame filter, 1 = textures only, 0 = off
+
+    var isUpdateAvailable: Boolean = false
+        set(value) {
+            field = value
+            postInvalidate()
+        }
+
+    private val paintBadgeRed = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(255, 255, 68, 68)
+        style = Paint.Style.FILL
+    }
 
     // Cheats Modal State & Bounds
     private var cheatsModalOpen = false
@@ -281,6 +293,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
         rectUpscale.setEmpty()
         rectCheats.setEmpty()
         rectWad.setEmpty()
+        rectUpdate.setEmpty()
         for (i in 0 until 7) {
             weaponRects[i].setEmpty()
         }
@@ -346,10 +359,10 @@ class DoomTouchOverlay @JvmOverloads constructor(
 
         // Menu Utilities on top-right when DOOM Menu is active (and not in a Y/N prompt)
         if ((uiMask and DoomBridge.UI_BIT_MENU_UTILS) != 0) {
-            val uW = 55f * density
-            val uGap = 5f * density
-            val totalMenuUtilsW = 6 * uW + 5 * uGap
-            var ux = w - 12f * density - totalMenuUtilsW
+            val uW = 50f * density
+            val uGap = 4f * density
+            val totalMenuUtilsW = 7 * uW + 6 * uGap
+            var ux = w - 10f * density - totalMenuUtilsW
 
             rectQuickSave.set(ux, topY, ux + uW, topY + topH)
             ux += uW + uGap
@@ -367,6 +380,9 @@ class DoomTouchOverlay @JvmOverloads constructor(
             ux += uW + uGap
 
             rectWad.set(ux, topY, ux + uW, topY + topH)
+            ux += uW + uGap
+
+            rectUpdate.set(ux, topY, ux + uW, topY + topH)
         } else {
             // Pack active weapon slot buttons on the top-right (only during level gameplay & owned)
             val activeSlots = (0 until 7).filter { DoomBridge.isWeaponSlotActive(uiMask, it) }
@@ -611,6 +627,12 @@ class DoomTouchOverlay @JvmOverloads constructor(
             drawButton(canvas, rectUpscale, hdFill, hdStroke, hdLabel, paintTextSmall)
             drawButton(canvas, rectCheats, if (cheatsModalOpen) paintBtnPressed else paintBtnStrafe, paintStrokeGold, "CHEATS", paintTextSmall)
             drawButton(canvas, rectWad, paintBtnTurn, paintStrokeGold, "WAD", paintTextSmall)
+            val updFill = if (isUpdateAvailable) paintBtnEnabled else paintBtnTurn
+            val updStroke = if (isUpdateAvailable) paintStrokeGreen else paintStrokeGold
+            drawButton(canvas, rectUpdate, updFill, updStroke, "OTA", paintTextSmall)
+            if (isUpdateAvailable) {
+                canvas.drawCircle(rectUpdate.right - 5f * density, rectUpdate.top + 5f * density, 3.5f * density, paintBadgeRed)
+            }
         }
 
         // Weapons Bar (Only drawn during active gameplay for owned weapons)
@@ -895,6 +917,11 @@ class DoomTouchOverlay @JvmOverloads constructor(
         if (rectWad.contains(x, y)) {
             DoomBridge.onHapticEvent(1)
             DoomBridge.requestWadPicker()
+            return
+        }
+        if (rectUpdate.contains(x, y)) {
+            DoomBridge.onHapticEvent(1)
+            DoomBridge.requestUpdateCheck()
             return
         }
 

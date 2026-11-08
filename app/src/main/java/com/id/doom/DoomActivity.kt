@@ -13,6 +13,9 @@ import android.view.WindowManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -20,6 +23,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import java.util.concurrent.CancellationException
+import java.util.concurrent.Executors
 
 class DoomActivity : ComponentActivity() {
 
@@ -31,6 +36,8 @@ class DoomActivity : ComponentActivity() {
     private lateinit var touchOverlay: DoomTouchOverlay
     private lateinit var hapticsManager: DoomHapticsManager
     private lateinit var wadManager: WadManager
+    private lateinit var updateManager: UpdateManager
+    private var isCheckingUpdate = false
 
     private var pendingExportSaveFile: java.io.File? = null
 
@@ -104,9 +111,12 @@ class DoomActivity : ComponentActivity() {
         val recoveryIndex = options.size
         val recCountLabel = if (quarantined.isNotEmpty()) " (${quarantined.size} found)" else ""
         options.add("📦 Recovered Saves Browser / Restore$recCountLabel...")
+        val updateIndex = options.size
+        val updateBadge = if (UpdateManager.isUpdateAvailable) " ★(Update Available!)" else ""
+        options.add("🔄 Check for Updates (v${BuildConfig.VERSION_NAME})$updateBadge...")
 
         android.app.AlertDialog.Builder(this)
-            .setTitle("Select or Import DOOM WAD")
+            .setTitle("DOOM WAD & Game Manager")
             .setItems(options.toTypedArray()) { _, which ->
                 when {
                     which < installed.size -> {
@@ -118,6 +128,7 @@ class DoomActivity : ComponentActivity() {
                     }
                     which == importIndex -> openWadLauncher.launch(arrayOf("*/*"))
                     which == recoveryIndex -> showQuarantinedSavesDialog()
+                    which == updateIndex -> checkManualUpdate()
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -256,6 +267,20 @@ class DoomActivity : ComponentActivity() {
                 showWadSelectorDialog()
             }
         }
+        DoomBridge.updateCheckListener = {
+            runOnUiThread {
+                checkManualUpdate()
+            }
+        }
+
+        updateManager = UpdateManager(this)
+        UpdateManager.onUpdateAvailabilityChanged = { available ->
+            runOnUiThread {
+                if (::touchOverlay.isInitialized) {
+                    touchOverlay.isUpdateAvailable = available
+                }
+            }
+        }
 
         val recoveryPrefs = getSharedPreferences("doom_engine_recovery", Context.MODE_PRIVATE)
         wadManager = WadManager(this)
@@ -289,6 +314,7 @@ class DoomActivity : ComponentActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
+            isUpdateAvailable = UpdateManager.isUpdateAvailable
         }
 
         rootLayout.addView(surfaceView)
@@ -316,11 +342,31 @@ class DoomActivity : ComponentActivity() {
 
         // Phase 2: Spawn or resume the native engine thread
         DoomBridge.nativeInit(iwadPath, wadManager.saveDirectory.absolutePath)
+
+        // Asynchronously check for GitHub Releases OTA updates without blocking engine startup
+        window.decorView.postDelayed({
+            if (!isFinishing && !isDestroyed) {
+                updateManager.checkForUpdates(manual = false) { result ->
+                    result.onSuccess { updateInfo ->
+                        if (updateInfo != null && !isFinishing && !isDestroyed) {
+                            showUpdatePrompt(updateInfo)
+                        }
+                    }
+                }
+            }
+        }, 3500)
     }
 
     override fun onResume() {
         super.onResume()
         DoomBridge.nativeSetPaused(false)
+        val pending = updateManager.pendingInstallFile
+        if (pending != null && pending.exists()) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
+                updateManager.pendingInstallFile = null
+                updateManager.launchInstallIntent(this, pending)
+            }
+        }
     }
 
     override fun onPause() {
@@ -387,6 +433,167 @@ class DoomActivity : ComponentActivity() {
             return true
         }
         return super.onGenericMotionEvent(event)
+    }
+
+    private fun checkManualUpdate() {
+        if (isCheckingUpdate) return
+        isCheckingUpdate = true
+
+        val density = resources.displayMetrics.density
+        val progressBar = ProgressBar(this).apply {
+            isIndeterminate = true
+        }
+        val message = TextView(this).apply {
+            text = "Checking GitHub for updates..."
+            setPadding(0, (12 * density).toInt(), 0, 0)
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (20 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+            addView(progressBar)
+            addView(message)
+        }
+
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("DOOM OTA Updater")
+            .setView(layout)
+            .setCancelable(false)
+            .create()
+        dialog.show()
+
+        updateManager.checkForUpdates(manual = true) { result ->
+            isCheckingUpdate = false
+            if (!isFinishing && !isDestroyed) {
+                dialog.dismiss()
+                result.fold(
+                    onSuccess = { updateInfo ->
+                        if (updateInfo != null) {
+                            showUpdatePrompt(updateInfo)
+                        } else {
+                            android.app.AlertDialog.Builder(this)
+                                .setTitle("DOOM is Up to Date")
+                                .setMessage("You are running the latest version of DOOM:\nv${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})")
+                                .setPositiveButton("OK", null)
+                                .show()
+                        }
+                    },
+                    onFailure = { error ->
+                        android.app.AlertDialog.Builder(this)
+                            .setTitle("Update Check Failed")
+                            .setMessage("Could not connect to GitHub Releases:\n${error.localizedMessage ?: error.message}\n\nPlease check your internet connection.")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
+                )
+            }
+        }
+    }
+
+    private fun showUpdatePrompt(updateInfo: UpdateManager.UpdateInfo) {
+        val notesPreview = updateInfo.releaseNotes.trim()
+            .lines()
+            .take(10)
+            .joinToString("\n")
+            .take(500)
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("⚡ DOOM Update Available!")
+            .setMessage(
+                "A newer version of DOOM is available on GitHub Releases:\n\n" +
+                "• Current Version: v${BuildConfig.VERSION_NAME}\n" +
+                "• Latest Version:  ${updateInfo.tagName} (${UpdateManager.formatBytes(updateInfo.apkSize)})\n\n" +
+                (if (notesPreview.isNotBlank()) "Changelog:\n$notesPreview\n\n" else "") +
+                "Would you like to download and install this update now?"
+            )
+            .setPositiveButton("Update Now") { _, _ ->
+                startApkDownload(updateInfo)
+            }
+            .setNegativeButton("Later", null)
+            .setNeutralButton("View on GitHub") { _, _ ->
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(updateInfo.htmlUrl)))
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to open release URL", e)
+                }
+            }
+            .show()
+    }
+
+    private fun startApkDownload(updateInfo: UpdateManager.UpdateInfo) {
+        var isCanceled = false
+        val density = resources.displayMetrics.density
+
+        val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = false
+            max = 100
+            progress = 0
+        }
+        val statusText = TextView(this).apply {
+            text = "Connecting to GitHub Releases..."
+            setPadding(0, (10 * density).toInt(), 0, 0)
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (20 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+            addView(progressBar)
+            addView(statusText)
+        }
+
+        val downloadDialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Downloading DOOM ${updateInfo.tagName}")
+            .setView(layout)
+            .setNegativeButton("Cancel") { _, _ ->
+                isCanceled = true
+            }
+            .setCancelable(false)
+            .create()
+        downloadDialog.show()
+
+        val totalSize = updateInfo.apkSize
+        val executor = Executors.newSingleThreadExecutor()
+        executor.execute {
+            try {
+                val downloadedFile = updateManager.downloadApk(
+                    updateInfo = updateInfo,
+                    isCanceled = { isCanceled },
+                    onProgress = { downloaded, total ->
+                        val totalToUse = if (total > 0) total else totalSize
+                        val pct = if (totalToUse > 0) ((downloaded * 100) / totalToUse).toInt() else 0
+                        val dlStr = UpdateManager.formatBytes(downloaded)
+                        val totStr = UpdateManager.formatBytes(totalToUse)
+                        runOnUiThread {
+                            if (!isCanceled && !isFinishing && !isDestroyed) {
+                                progressBar.progress = pct
+                                statusText.text = "$dlStr / $totStr ($pct%)"
+                            }
+                        }
+                    }
+                )
+
+                runOnUiThread {
+                    if (!isCanceled && !isFinishing && !isDestroyed) {
+                        downloadDialog.dismiss()
+                        updateManager.installApk(this, downloadedFile)
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    if (!isCanceled && !isFinishing && !isDestroyed) {
+                        downloadDialog.dismiss()
+                        if (e !is CancellationException) {
+                            android.app.AlertDialog.Builder(this)
+                                .setTitle("Download Failed")
+                                .setMessage("Failed to download update APK:\n${e.localizedMessage ?: e.message}")
+                                .setPositiveButton("Retry") { _, _ -> startApkDownload(updateInfo) }
+                                .setNegativeButton("Cancel", null)
+                                .show()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     override fun onDestroy() {

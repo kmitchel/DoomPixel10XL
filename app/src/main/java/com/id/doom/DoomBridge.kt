@@ -49,10 +49,11 @@ object DoomBridge {
         return (mask and (1 shl (8 + slotIndex))) != 0
     }
 
-    // Listeners for Haptics, Quit, and WAD selection
+    // Listeners for Haptics, Quit, WAD selection, and OTA Update check
     var hapticListener: ((Int) -> Unit)? = null
     var quitListener: (() -> Unit)? = null
     var wadPickerListener: (() -> Unit)? = null
+    var updateCheckListener: (() -> Unit)? = null
     @Volatile
     var firstFrameListener: ((Int) -> Unit)? = null
 
@@ -73,6 +74,10 @@ object DoomBridge {
 
     fun requestWadPicker() {
         wadPickerListener?.invoke()
+    }
+
+    fun requestUpdateCheck() {
+        updateCheckListener?.invoke()
     }
 
     // Native JNI functions
