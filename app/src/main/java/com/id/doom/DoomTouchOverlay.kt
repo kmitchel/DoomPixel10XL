@@ -413,28 +413,29 @@ class DoomTouchOverlay @JvmOverloads constructor(
         val viewportLeft = (w - viewportW) / 2f
         val viewportRight = viewportLeft + viewportW
 
-        stickRadius = 72f * density
-        stickActiveRadius = 62f * density
+        stickRadius = 66f * density
+        stickActiveRadius = 58f * density
 
-        // 1. Virtual stick base: centered horizontally and vertically in the left letterbox area
+        // 1. Virtual stick base: centered horizontally in the left letterbox area,
+        // positioned comfortably below the landscape front camera punch-hole (which sits at h / 2)
         if (viewportLeft > stickRadius * 1.5f) {
             stickCenterBaseX = viewportLeft / 2f
         } else {
             stickCenterBaseX = (100f * density).coerceAtMost(w * 0.25f)
         }
-        stickCenterBaseY = h / 2f
+        stickCenterBaseY = h - (116f * density)
         stickOriginX = stickCenterBaseX
         stickOriginY = stickCenterBaseY
         stickThumbX = stickCenterBaseX
         stickThumbY = stickCenterBaseY
 
-        // 2. Action Buttons: centered horizontally and vertically in the right letterbox area
+        // 2. Action Buttons: centered horizontally in the right letterbox area with generous padding
         // Outer pod: rectCluster
         // Tier 1 (Top): rectUse (same height as FIRE)
-        // Tier 2 (Middle): rectFire (center horizontally aligned with left joystick at h / 2f)
+        // Tier 2 (Middle): rectFire (center horizontally aligned with left joystick stickCenterBaseY)
         // Tier 3 (Bottom): rectSideLeft (◀) and rectSideRight (▶) (same height as FIRE)
-        // All three tiers share the exact same height (btnH = 56dp)
-        val clusterW = 106f * density
+        // All three tiers share the exact same height (btnH = 50dp) and generous padding
+        val clusterW = 100f * density
         val rightLetterboxW = w - viewportRight
         val colLeft: Float
         val colRight: Float
@@ -443,15 +444,16 @@ class DoomTouchOverlay @JvmOverloads constructor(
             colLeft = rightLetterboxCenterX - (clusterW / 2f)
             colRight = rightLetterboxCenterX + (clusterW / 2f)
         } else {
-            colRight = w - (16f * density)
+            colRight = w - (20f * density)
             colLeft = colRight - clusterW
         }
 
-        val btnH = 56f * density
-        val rowGap = 7f * density
-        val podPad = 6f * density
+        val btnH = 50f * density
+        val rowGap = 9f * density
+        val strafeGap = 8f * density
+        val podPad = 10f * density
 
-        // Tier 2 (Middle): FIRE button (centered at h / 2f, matching left joystick stickCenterBaseY)
+        // Tier 2 (Middle): FIRE button (horizontally aligned with left joystick stickCenterBaseY)
         val fireCenterY = stickCenterBaseY
         val fireTop = fireCenterY - (btnH / 2f)
         val fireBottom = fireCenterY + (btnH / 2f)
@@ -475,7 +477,6 @@ class DoomTouchOverlay @JvmOverloads constructor(
         // Tier 3 (Bottom): Strafe dual rocker (same height as FIRE)
         val strafeTop = fireBottom + rowGap
         val strafeBottom = strafeTop + btnH
-        val strafeGap = 6f * density
         val strafeW = (clusterW - strafeGap) / 2f
 
         rectSideLeft.set(
@@ -491,7 +492,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
             strafeBottom
         )
 
-        // Pod Backdrop surrounding the vertical stack (centered at h / 2f)
+        // Pod Backdrop surrounding the vertical stack with 10dp tactical padding on all sides
         rectCluster.set(
             colLeft - podPad,
             useTop - podPad,
@@ -629,8 +630,8 @@ class DoomTouchOverlay @JvmOverloads constructor(
 
         // 4. Action Buttons (Right-side vertically stacked tactical cluster)
         // Background Tactical Pod
-        canvas.drawRoundRect(rectCluster, 18f * density, 18f * density, paintBtnPod)
-        canvas.drawRoundRect(rectCluster, 18f * density, 18f * density, paintStrokePod)
+        canvas.drawRoundRect(rectCluster, 20f * density, 20f * density, paintBtnPod)
+        canvas.drawRoundRect(rectCluster, 20f * density, 20f * density, paintStrokePod)
 
         // Tier 1 (Top): USE button (same height as FIRE)
         drawButton(
@@ -927,7 +928,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
 
         // 7. Left Virtual Stick (Touch anchor + progressive walking curve + anti-veer corridor)
         val hasStickPointer = pointerRoles.values.any { it is PointerRole.Stick }
-        if (!hasStickPointer && (distToStick <= stickRadius * 1.45f || (x < viewportLeft && y > height * 0.15f))) {
+        if (!hasStickPointer && (distToStick <= stickRadius * 1.45f || (x < viewportLeft && y > height * 0.40f))) {
             pointerRoles[pid] = PointerRole.Stick
             // Anchor origin to touch point so initial touch never causes accidental lurch or run!
             stickOriginX = x
