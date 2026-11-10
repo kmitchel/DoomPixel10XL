@@ -64,4 +64,59 @@ int main() {
         DG_Music_UnRegisterSong(handle);
     }
     std::puts("MUS parser regression tests passed");
+
+    // =========================================================================
+    // Spatial Audio & Stereo Panning Regression Tests
+    // =========================================================================
+    {
+        int left = 0, right = 0;
+
+        // 1. Zero volume must yield silence in both channels
+        ComputeStereoGains(0, 128, &left, &right);
+        assert(left == 0 && right == 0);
+
+        // 2. Dead center (sep = 128) must have perfectly balanced gains
+        ComputeStereoGains(120, 128, &left, &right);
+        assert(left == right);
+        assert(left > 0);
+
+        // 3. Enemy firing hard left (sep = 8): left ear dominant, right ear attenuated
+        int hardLeftL = 0, hardLeftR = 0;
+        ComputeStereoGains(120, 8, &hardLeftL, &hardLeftR);
+        assert(hardLeftL > 100);
+        assert(hardLeftR < 10);
+        assert(hardLeftL > hardLeftR * 15); // >= 24 dB directional separation
+
+        // 4. Enemy firing hard right (sep = 248): right ear dominant, left ear attenuated
+        int hardRightL = 0, hardRightR = 0;
+        ComputeStereoGains(120, 248, &hardRightL, &hardRightR);
+        assert(hardRightR > 100);
+        assert(hardRightL < 10);
+        assert(hardRightR > hardRightL * 15);
+
+        // 5. Perfect stereo symmetry between left and right sound sources
+        assert(hardLeftL == hardRightR);
+        assert(hardLeftR == hardRightL);
+
+        // 6. Monotonic spatial graduation from left to center
+        int midLeftL = 0, midLeftR = 0;
+        ComputeStereoGains(120, 68, &midLeftL, &midLeftR);
+        assert(midLeftL > left);  // More left than center
+        assert(midLeftR < right); // Less right than center
+        assert(hardLeftL > midLeftL);
+        assert(hardLeftR < midLeftR);
+
+        // 7. Perceptual volume scaling provides punch at default volume (vol = 64)
+        int defCenterL = 0, defCenterR = 0;
+        ComputeStereoGains(64, 128, &defCenterL, &defCenterR);
+        assert(defCenterL == defCenterR);
+        assert(defCenterL >= 60); // Punchy presence against background music
+
+        // 8. Distant enemy fire retention
+        int distL = 0, distR = 0;
+        ComputeStereoGains(35, 8, &distL, &distR);
+        assert(distL > distR * 10);
+        assert(distL > 40); // Clearly audible across room
+    }
+    std::puts("Spatial audio & stereo panning regression tests passed");
 }

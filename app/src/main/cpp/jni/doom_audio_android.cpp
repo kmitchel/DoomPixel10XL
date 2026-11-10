@@ -113,13 +113,60 @@ static inline float MidiNoteToFreq(float note) {
 }
 
 static void ComputeStereoGains(int vol, int sep, int* outLeft, int* outRight) {
-    if (vol < 0) vol = 0;
+    if (vol <= 0) {
+        *outLeft = 0;
+        *outRight = 0;
+        return;
+    }
     if (vol > 127) vol = 127;
     if (sep < 0) sep = 0;
     if (sep > 254) sep = 254;
-    // DOOM stereo pan law: sep=128 is center
-    *outLeft = (vol * (254 - sep)) / 127;
-    *outRight = (vol * sep) / 127;
+
+    // Perceptual volume curve:
+    // DOOM volume max is 120 (sfxVolume 15 * 8) or 127.
+    // At default volume (sfxVolume = 8 => vol = 64), linear attenuation cuts
+    // perceived acoustic power down to 25%. A mild sqrt perceptual scale preserves
+    // punch and presence for distant enemy fire while respecting the volume slider.
+    float vNorm = static_cast<float>(vol) / 120.0f;
+    if (vNorm > 1.0f) vNorm = 1.0f;
+    float vScale = std::sqrt(vNorm);
+
+    // Map sep (0..254, 128 = center) to normalized pan [-1.0f, +1.0f]
+    // sep < 128: sound is to the LEFT
+    // sep > 128: sound is to the RIGHT
+    // With S_STEREO_SWING = 120, extreme angles reach sep=8 and sep=248 (+/- 120 offset)
+    float pan = (static_cast<float>(sep) - 128.0f) / 120.0f;
+    if (pan < -1.0f) pan = -1.0f;
+    if (pan > 1.0f) pan = 1.0f;
+
+    // Equal-power (constant energy) panning curve:
+    // Maintains identical total acoustic energy across all pan angles.
+    // At pan = -1 (hard left): theta = 0     => cos = 1, sin = 0
+    // At pan =  0 (center):    theta = pi/4  => cos = 0.7071, sin = 0.7071
+    // At pan = +1 (hard right): theta = pi/2 => cos = 0, sin = 1
+    constexpr float kPiOver4 = 0.785398163f;
+    float theta = (pan + 1.0f) * kPiOver4;
+    float pL = std::cos(theta);
+    float pR = std::sin(theta);
+
+    // Subtle 4% crossfeed floor prevents unnatural ear-plugging feeling on headphones,
+    // while providing an ultra-sharp 26 dB separation on phone stereo speakers.
+    constexpr float kCrossfeed = 0.04f;
+    float gainL = pL * (1.0f - kCrossfeed) + pR * kCrossfeed;
+    float gainR = pR * (1.0f - kCrossfeed) + pL * kCrossfeed;
+
+    // In DoomAudioDataCallback: mixL += (interp * c.leftGain * 2)
+    // For 8-bit sample interp in [-128..127], gain of 128 gives full 16-bit range (127 * 128 * 2 = 32512).
+    int lGain = static_cast<int>(std::round(vScale * gainL * 128.0f));
+    int rGain = static_cast<int>(std::round(vScale * gainR * 128.0f));
+
+    if (lGain < 0) lGain = 0;
+    else if (lGain > 128) lGain = 128;
+    if (rGain < 0) rGain = 0;
+    else if (rGain > 128) rGain = 128;
+
+    *outLeft = lGain;
+    *outRight = rGain;
 }
 
 static void ResetMusChannelStatesLocked() {
@@ -492,14 +539,25 @@ static aaudio_data_callback_result_t DoomAudioDataCallback(
             }
         }
 
-        if (mixL > 32767) mixL = 32767;
-        else if (mixL < -32768) mixL = -32768;
+        // Smooth soft-knee saturation prevents harsh digital clipping when multiple loud sounds overlap
+        auto softLimit = [](int32_t val) -> int16_t {
+            constexpr int32_t kLinearThreshold = 24576;
+            constexpr int32_t kMaxAmp = 32767;
+            constexpr int32_t kHeadroom = kMaxAmp - kLinearThreshold; // 8191
+            if (val > kLinearThreshold) {
+                int32_t excess = val - kLinearThreshold;
+                val = kLinearThreshold + (excess * kHeadroom) / (excess + kHeadroom);
+                if (val > kMaxAmp) val = kMaxAmp;
+            } else if (val < -kLinearThreshold) {
+                int32_t excess = -val - kLinearThreshold;
+                val = -(kLinearThreshold + (excess * kHeadroom) / (excess + kHeadroom));
+                if (val < -32768) val = -32768;
+            }
+            return static_cast<int16_t>(val);
+        };
 
-        if (mixR > 32767) mixR = 32767;
-        else if (mixR < -32768) mixR = -32768;
-
-        out[frame * 2] = static_cast<int16_t>(mixL);
-        out[frame * 2 + 1] = static_cast<int16_t>(mixR);
+        out[frame * 2] = softLimit(mixL);
+        out[frame * 2 + 1] = softLimit(mixR);
     }
 
     pthread_mutex_unlock(&g_audioMutex);

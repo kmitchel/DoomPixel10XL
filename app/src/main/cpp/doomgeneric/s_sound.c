@@ -41,7 +41,7 @@
 // when to clip out sounds
 // Does not fit the large outdoor areas.
 
-#define S_CLIPPING_DIST (1200 * FRACUNIT)
+#define S_CLIPPING_DIST (1600 * FRACUNIT)
 
 // Distance tp origin when sounds should be maxed out.
 // This should relate to movement clipping resolution
@@ -55,9 +55,9 @@
 
 #define S_ATTENUATOR ((S_CLIPPING_DIST - S_CLOSE_DIST) >> FRACBITS)
 
-// Stereo separation
+// Stereo separation (widened from 96 to 120 for immersive spatialization)
 
-#define S_STEREO_SWING (96 * FRACUNIT)
+#define S_STEREO_SWING (120 * FRACUNIT)
 
 #define NORM_PITCH 128
 #define NORM_PRIORITY 64
