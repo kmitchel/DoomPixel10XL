@@ -193,6 +193,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
     private val rectCluster = RectF()
     private val rectFireStrafeConsole = RectF()
     private val rectFire = RectF()
+    private val rectFireHitZone = RectF()
     private val rectSideLeft = RectF()
     private val rectSideRight = RectF()
     private val rectUse = RectF()
@@ -425,7 +426,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
         val density = resources.displayMetrics.density
 
         // Configure font sizes scaled to display density
-        paintTextLarge.textSize = 17f * density
+        paintTextLarge.textSize = 18.5f * density
         paintTextMed.textSize = 13f * density
         paintTextSmall.textSize = 11.5f * density
         paintTextPill.textSize = 11f * density
@@ -471,11 +472,19 @@ class DoomTouchOverlay @JvmOverloads constructor(
         // Tier 1 (Top): rectUse (same height as FIRE)
         // Tier 2 (Main): Integrated FIRE & STRAFE Console (center horizontally aligned with left joystick stickCenterBaseY)
         //   - Left Wing: rectSideLeft (◀ STRAFE LEFT)
-        //   - Center Core: rectFire (FIRE)
+        //   - Center Core: rectFire (FIRE) - substantially enlarged for instant, reliable weapon firing
         //   - Right Wing: rectSideRight (STRAFE RIGHT ▶)
         //   - Combined Bounds: rectFireStrafeConsole
-        val clusterW = 110f * density
+        //   - Expanded Capture Zone: rectFireHitZone (guarantees 100% reliable tap-to-fire on the very first touch)
         val rightLetterboxW = w - viewportRight
+        val clusterW = if (rightLetterboxW > 170f * density) {
+            156f * density
+        } else if (rightLetterboxW > 140f * density) {
+            (rightLetterboxW - (16f * density)).coerceAtMost(156f * density)
+        } else {
+            132f * density
+        }
+
         val colLeft: Float
         val colRight: Float
         if (rightLetterboxW > clusterW) {
@@ -483,15 +492,15 @@ class DoomTouchOverlay @JvmOverloads constructor(
             colLeft = rightLetterboxCenterX - (clusterW / 2f)
             colRight = rightLetterboxCenterX + (clusterW / 2f)
         } else {
-            colRight = w - (20f * density)
+            colRight = w - (16f * density)
             colLeft = colRight - clusterW
         }
 
-        val btnH = 50f * density
-        val rowGap = 9f * density
+        val btnH = 62f * density
+        val rowGap = 10f * density
         val podPad = 10f * density
-        val wingW = 28f * density
-        val dockGap = 3f * density
+        val wingW = 30f * density
+        val dockGap = 3.5f * density
 
         // Tier 2 (Main): Integrated FIRE & STRAFE console (horizontally aligned with left joystick stickCenterBaseY)
         val fireCenterY = stickCenterBaseY
@@ -506,7 +515,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
             fireBottom
         )
 
-        // Center FIRE Core
+        // Center FIRE Core (~89dp wide x 62dp high, 2.3x previous area)
         rectFire.set(
             colLeft + wingW + dockGap,
             fireTop,
@@ -546,6 +555,15 @@ class DoomTouchOverlay @JvmOverloads constructor(
             useTop - podPad,
             colRight + podPad,
             fireBottom + podPad
+        )
+
+        // Generous Hit Zone for FIRE & STRAFE: captures any touch from useBottom downwards,
+        // extending outward into the pod padding so the weapon reliably fires on the very first touch
+        rectFireHitZone.set(
+            colLeft - (podPad * 1.5f),
+            useBottom,
+            (colRight + (podPad * 1.5f)).coerceAtMost(w.toFloat()),
+            (fireBottom + (podPad * 2f)).coerceAtMost(h.toFloat())
         )
 
         // 3. Center Prompt Buttons (For Y/N questions)
@@ -889,26 +907,30 @@ class DoomTouchOverlay @JvmOverloads constructor(
         }
 
         // 3. Right-Side Action Buttons: Integrated FIRE & STRAFE Console + USE
-        if (rectFireStrafeConsole.contains(x, y)) {
+        // Prioritize USE for touches in rectUse or upper tactical pod area above rectUse.bottom
+        if (rectUse.contains(x, y) || (y < rectUse.bottom && rectCluster.contains(x, y))) {
+            // Pure KEY_USE (opens doors/switches/respawns, never triggers menu or level reload!)
+            pressAndHoldKey(pid, DoomBridge.KEY_USE)
+            return
+        }
+
+        // Taps within the FIRE & STRAFE console or its expanded hit zone guarantee firing on the 1st try!
+        if (rectFireStrafeConsole.contains(x, y) || rectFireHitZone.contains(x, y)) {
             val role = PointerRole.FireAndStrafe(x, y, isFiring = true, activeStrafeKey = 0)
             pointerRoles[pid] = role
             DoomBridge.onHapticEvent(1)
             DoomBridge.nativeSendKey(1, DoomBridge.KEY_FIRE)
 
-            // Determine if initial touch lands on left wing (◀) or right wing (▶)
-            if (rectSideLeft.contains(x, y) || x < rectFire.left + (4f * density)) {
+            // Direct touch on left wing (◀) or right wing (▶) activates strafe alongside fire
+            if (rectSideLeft.contains(x, y) || x <= rectFire.left) {
                 role.activeStrafeKey = DoomBridge.KEY_STRAFE_L
                 DoomBridge.nativeSendKey(1, DoomBridge.KEY_STRAFE_L)
-            } else if (rectSideRight.contains(x, y) || x > rectFire.right - (4f * density)) {
+            } else if (rectSideRight.contains(x, y) || x >= rectFire.right) {
                 role.activeStrafeKey = DoomBridge.KEY_STRAFE_R
                 DoomBridge.nativeSendKey(1, DoomBridge.KEY_STRAFE_R)
             }
+            // Center core between rectFire.left and rectFire.right is 100% pure weapon fire
             postInvalidate()
-            return
-        }
-        if (rectUse.contains(x, y)) {
-            // Pure KEY_USE (opens doors/switches/respawns, never triggers menu or level reload!)
-            pressAndHoldKey(pid, DoomBridge.KEY_USE)
             return
         }
 
@@ -1043,7 +1065,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
         // 8. Automap Free Drag Panning: when automap is open, dragging on the map surface pans the view
         if ((uiMask and DoomBridge.UI_BIT_AUTOMAP) != 0 &&
             (x in viewportLeft..(viewportLeft + viewportW) || x > viewportLeft + viewportW) &&
-            !rectCluster.contains(x, y) && y > (50f * density)) {
+            !rectCluster.contains(x, y) && !rectFireHitZone.contains(x, y) && y > (50f * density)) {
             pointerRoles[pid] = PointerRole.MapPan(x, y)
             return
         }
@@ -1196,8 +1218,8 @@ class DoomTouchOverlay @JvmOverloads constructor(
                 // Dynamic strafe steering across the integrated console:
                 // Sliding/leaning left triggers STRAFE_L, sliding/leaning right triggers STRAFE_R, center zone fires without strafe
                 val newStrafeKey = when {
-                    x <= rectFire.left + (8f * density) || rectSideLeft.contains(x, y) -> DoomBridge.KEY_STRAFE_L
-                    x >= rectFire.right - (8f * density) || rectSideRight.contains(x, y) -> DoomBridge.KEY_STRAFE_R
+                    x <= rectFire.left || rectSideLeft.contains(x, y) -> DoomBridge.KEY_STRAFE_L
+                    x >= rectFire.right || rectSideRight.contains(x, y) -> DoomBridge.KEY_STRAFE_R
                     else -> 0
                 }
 
