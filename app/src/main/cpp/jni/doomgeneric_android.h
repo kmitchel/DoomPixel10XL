@@ -24,6 +24,10 @@ void Android_SendMouseMove(float dx, float dy);
 int Android_GetMouseDeltaX(void);
 int Android_GetMouseDeltaY(void);
 
+// Automap panning
+void Android_SendMapPan(float dx, float dy);
+void Android_ConsumeMapPan(int* outDx, int* outDy);
+
 // Haptic trigger callback into JVM
 void Android_TriggerHaptic(int effectType);
 

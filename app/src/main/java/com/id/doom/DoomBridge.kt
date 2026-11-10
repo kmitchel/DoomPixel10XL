@@ -44,6 +44,7 @@ object DoomBridge {
     const val UI_BIT_MAP = 1 shl 4
     const val UI_BIT_AUTOMAP = 1 shl 5
     const val UI_BIT_MENU_UTILS = 1 shl 6
+    const val UI_BIT_FREE_PAN = 1 shl 7
 
     fun isWeaponSlotActive(mask: Int, slotIndex: Int): Boolean {
         return (mask and (1 shl (8 + slotIndex))) != 0
@@ -88,6 +89,8 @@ object DoomBridge {
     @JvmStatic external fun nativeSendKey(pressed: Int, doomKey: Int)
     @JvmStatic external fun nativeSendAnalog(forward: Float, strafe: Float, turn: Float)
     @JvmStatic external fun nativeSendLook(deltaX: Float, deltaY: Float)
+    @JvmStatic external fun nativeGetPlayerAngle(): Float
+    @JvmStatic external fun nativePanAutomap(deltaX: Float, deltaY: Float)
     @JvmStatic external fun nativeTriggerCheat(cheatId: Int)
     @JvmStatic external fun nativeSetUpscaleMode(mode: Int)
     @JvmStatic external fun nativeGetUpscaleMode(): Int

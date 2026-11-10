@@ -582,6 +582,20 @@ Java_com_id_doom_DoomBridge_nativeSendLook(JNIEnv* /*env*/, jclass /*clazz*/, jf
     Android_SendMouseMove(deltaX * 2.2f * sensScale, 0.0f);
 }
 
+extern "C" float Android_GetPlayerHeadingDegrees(void);
+
+JNIEXPORT jfloat JNICALL
+Java_com_id_doom_DoomBridge_nativeGetPlayerAngle(JNIEnv* /*env*/, jclass /*clazz*/)
+{
+    return static_cast<jfloat>(Android_GetPlayerHeadingDegrees());
+}
+
+JNIEXPORT void JNICALL
+Java_com_id_doom_DoomBridge_nativePanAutomap(JNIEnv* /*env*/, jclass /*clazz*/, jfloat deltaX, jfloat deltaY)
+{
+    Android_SendMapPan(deltaX, deltaY);
+}
+
 JNIEXPORT void JNICALL
 Java_com_id_doom_DoomBridge_nativeTriggerCheat(JNIEnv* /*env*/, jclass /*clazz*/, jint cheatId)
 {

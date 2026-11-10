@@ -18,6 +18,7 @@
 
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "deh_main.h"
 
@@ -812,6 +813,8 @@ void AM_updateLightLev(void)
 
 
 //
+extern void Android_ConsumeMapPan(int* outDx, int* outDy);
+
 // Updates on Game Tick
 //
 void AM_Ticker (void)
@@ -832,6 +835,30 @@ void AM_Ticker (void)
     // Change x,y location
     if (m_paninc.x || m_paninc.y)
 	AM_changeWindowLoc();
+
+    // Direct touch-screen map panning
+    int panDx = 0, panDy = 0;
+    Android_ConsumeMapPan(&panDx, &panDy);
+    if (panDx != 0 || panDy != 0)
+    {
+        followplayer = 0;
+        f_oldloc.x = INT_MAX;
+        m_x -= FTOM(panDx);
+        m_y += FTOM(panDy);
+
+        if (m_x + m_w/2 > max_x)
+            m_x = max_x - m_w/2;
+        else if (m_x + m_w/2 < min_x)
+            m_x = min_x - m_w/2;
+
+        if (m_y + m_h/2 > max_y)
+            m_y = max_y - m_h/2;
+        else if (m_y + m_h/2 < min_y)
+            m_y = min_y - m_h/2;
+
+        m_x2 = m_x + m_w;
+        m_y2 = m_y + m_h;
+    }
 
     // Update light level
     // AM_updateLightLev();
@@ -1254,48 +1281,170 @@ AM_drawLineCharacter
     }
 }
 
+static void AM_drawScreenLine(int x0, int y0, int x1, int y1, int color)
+{
+    int dx = abs(x1 - x0);
+    int sx = x0 < x1 ? 1 : -1;
+    int dy = -abs(y1 - y0);
+    int sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy;
+
+    while (1)
+    {
+        if (x0 >= 0 && x0 < f_w && y0 >= 0 && y0 < f_h)
+        {
+            fb[y0 * f_w + x0] = (byte)color;
+        }
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+}
+
+static void AM_drawPlayerMarker(player_t* p, int primaryColor, int secondaryColor, boolean isLocalPlayer)
+{
+    if (!p || !p->mo) return;
+
+    int cx = CXMTOF(p->mo->x);
+    int cy = CYMTOF(p->mo->y);
+
+    // Skip if far outside frame
+    if (cx < -50 || cx > f_w + 50 || cy < -50 || cy > f_h + 50)
+        return;
+
+    angle_t angle = p->mo->angle;
+    fixed_t c = finecosine[angle >> ANGLETOFINESHIFT];
+    fixed_t s = finesine[angle >> ANGLETOFINESHIFT];
+
+    // Screen forward vector: DOOM map Y+ is screen Y- (UP)
+    float fx = (float)c / 65536.0f;
+    float fy = -(float)s / 65536.0f;
+    // Screen right perpendicular vector
+    float rx = -fy;
+    float ry = fx;
+
+    // 1. Forward Sightline / Heading Beam (showing exact aiming direction)
+    if (isLocalPlayer)
+    {
+        // Dark outer protective halo for 100% contrast against all maps
+        for (int offset = -1; offset <= 1; ++offset)
+        {
+            if (offset != 0)
+            {
+                int ox = (int)(rx * offset);
+                int oy = (int)(ry * offset);
+                AM_drawScreenLine(
+                    cx + (int)(fx * 10.0f) + ox, cy + (int)(fy * 10.0f) + oy,
+                    cx + (int)(fx * 36.0f) + ox, cy + (int)(fy * 36.0f) + oy,
+                    BLACK
+                );
+            }
+        }
+
+        // Vibrant core sightline beam (bright gold/yellow)
+        AM_drawScreenLine(
+            cx + (int)(fx * 10.0f), cy + (int)(fy * 10.0f),
+            cx + (int)(fx * 36.0f), cy + (int)(fy * 36.0f),
+            YELLOWS
+        );
+
+        // Sightline targeting reticle ticks at distance 22 and 36
+        int t1x = cx + (int)(fx * 22.0f);
+        int t1y = cy + (int)(fy * 22.0f);
+        AM_drawScreenLine(t1x - (int)(rx * 2.5f), t1y - (int)(ry * 2.5f), t1x + (int)(rx * 2.5f), t1y + (int)(ry * 2.5f), BLACK);
+        AM_drawScreenLine(t1x - (int)(rx * 1.5f), t1y - (int)(ry * 1.5f), t1x + (int)(rx * 1.5f), t1y + (int)(ry * 1.5f), YELLOWS);
+
+        int t2x = cx + (int)(fx * 36.0f);
+        int t2y = cy + (int)(fy * 36.0f);
+        AM_drawScreenLine(t2x - (int)(rx * 3.5f), t2y - (int)(ry * 3.5f), t2x + (int)(rx * 3.5f), t2y + (int)(ry * 3.5f), BLACK);
+        AM_drawScreenLine(t2x - (int)(rx * 2.0f), t2y - (int)(ry * 2.0f), t2x + (int)(rx * 2.0f), t2y + (int)(ry * 2.0f), WHITE);
+    }
+
+    // 2. Bold Tactical Chevron Indicator (Minimum 10px screen radius, never collapses)
+    int tip_x = cx + (int)(fx * 10.5f + (fx > 0 ? 0.5f : -0.5f));
+    int tip_y = cy + (int)(fy * 10.5f + (fy > 0 ? 0.5f : -0.5f));
+
+    int lw_x = cx - (int)(fx * 7.5f + rx * 7.0f);
+    int lw_y = cy - (int)(fy * 7.5f + ry * 7.0f);
+
+    int rw_x = cx - (int)(fx * 7.5f - rx * 7.0f);
+    int rw_y = cy - (int)(fy * 7.5f - ry * 7.0f);
+
+    int notch_x = cx - (int)(fx * 2.5f);
+    int notch_y = cy - (int)(fy * 2.5f);
+
+    // Black outline / shadow for maximum contrast
+    for (int dy = -1; dy <= 1; ++dy)
+    {
+        for (int dx = -1; dx <= 1; ++dx)
+        {
+            if (dx != 0 || dy != 0)
+            {
+                AM_drawScreenLine(tip_x + dx, tip_y + dy, lw_x + dx, lw_y + dy, BLACK);
+                AM_drawScreenLine(lw_x + dx, lw_y + dy, notch_x + dx, notch_y + dy, BLACK);
+                AM_drawScreenLine(notch_x + dx, notch_y + dy, rw_x + dx, rw_y + dy, BLACK);
+                AM_drawScreenLine(rw_x + dx, rw_y + dy, tip_x + dx, tip_y + dy, BLACK);
+            }
+        }
+    }
+
+    // Inner filled/thick chevron lines
+    AM_drawScreenLine(tip_x, tip_y, lw_x, lw_y, primaryColor);
+    AM_drawScreenLine(lw_x, lw_y, notch_x, notch_y, primaryColor);
+    AM_drawScreenLine(notch_x, notch_y, rw_x, rw_y, primaryColor);
+    AM_drawScreenLine(rw_x, rw_y, tip_x, tip_y, primaryColor);
+
+    // Spine and inner body
+    AM_drawScreenLine(tip_x, tip_y, notch_x, notch_y, secondaryColor);
+    AM_drawScreenLine(tip_x, tip_y, notch_x - (int)(rx * 2.5f), notch_y - (int)(ry * 2.5f), primaryColor);
+    AM_drawScreenLine(tip_x, tip_y, notch_x + (int)(rx * 2.5f), notch_y + (int)(ry * 2.5f), primaryColor);
+
+    // High-contrast center position beacon dot
+    if (cx >= 1 && cx < f_w - 1 && cy >= 1 && cy < f_h - 1)
+    {
+        fb[cy * f_w + cx] = (byte)WHITE;
+        fb[(cy - 1) * f_w + cx] = (byte)secondaryColor;
+        fb[(cy + 1) * f_w + cx] = (byte)secondaryColor;
+        fb[cy * f_w + (cx - 1)] = (byte)secondaryColor;
+        fb[cy * f_w + (cx + 1)] = (byte)secondaryColor;
+    }
+}
+
 void AM_drawPlayers(void)
 {
     int		i;
     player_t*	p;
-    static int 	their_colors[] = { GREENS, GRAYS, BROWNS, REDS };
+    static int 	their_colors[] = { GREENS + 8, GRAYS + 8, BROWNS + 8, REDS + 8 };
     int		their_color = -1;
     int		color;
 
     if (!netgame)
     {
-	if (cheating)
-	    AM_drawLineCharacter
-		(cheat_player_arrow, arrlen(cheat_player_arrow), 0,
-		 plr->mo->angle, WHITE, plr->mo->x, plr->mo->y);
-	else
-	    AM_drawLineCharacter
-		(player_arrow, arrlen(player_arrow), 0, plr->mo->angle,
-		 WHITE, plr->mo->x, plr->mo->y);
-	return;
+        int prim = cheating ? (REDS + 8) : YELLOWS;
+        int sec = WHITE;
+        AM_drawPlayerMarker(plr, prim, sec, true);
+        return;
     }
 
-    for (i=0;i<MAXPLAYERS;i++)
+    for (i = 0; i < MAXPLAYERS; i++)
     {
-	their_color++;
-	p = &players[i];
+        their_color++;
+        p = &players[i];
 
-	if ( (deathmatch && !singledemo) && p != plr)
-	    continue;
+        if ((deathmatch && !singledemo) && p != plr)
+            continue;
 
-	if (!playeringame[i])
-	    continue;
+        if (!playeringame[i])
+            continue;
 
-	if (p->powers[pw_invisibility])
-	    color = 246; // *close* to black
-	else
-	    color = their_colors[their_color];
-	
-	AM_drawLineCharacter
-	    (player_arrow, arrlen(player_arrow), 0, p->mo->angle,
-	     color, p->mo->x, p->mo->y);
+        if (p->powers[pw_invisibility])
+            color = 246; // close to black
+        else
+            color = their_colors[their_color];
+
+        AM_drawPlayerMarker(p, color, WHITE, p == plr);
     }
-
 }
 
 void
@@ -1346,6 +1495,61 @@ void AM_drawCrosshair(int color)
 
 }
 
+static void AM_drawCompassRose(void)
+{
+    // Compass rose in top-left tactical corner
+    int ox = f_x + 22;
+    int oy = f_y + 24;
+    int r = 11;
+
+    // Outer dark contrast halo behind ring
+    for (int a = 0; a < 16; ++a)
+    {
+        angle_t a1 = (angle_t)a * (ANG45 / 2);
+        angle_t a2 = (angle_t)(a + 1) * (ANG45 / 2);
+        int x1 = ox + (int)((float)finecosine[a1 >> ANGLETOFINESHIFT] / 65536.0f * (float)r);
+        int y1 = oy - (int)((float)finesine[a1 >> ANGLETOFINESHIFT] / 65536.0f * (float)r);
+        int x2 = ox + (int)((float)finecosine[a2 >> ANGLETOFINESHIFT] / 65536.0f * (float)r);
+        int y2 = oy - (int)((float)finesine[a2 >> ANGLETOFINESHIFT] / 65536.0f * (float)r);
+        AM_drawScreenLine(x1, y1, x2, y2, GRAYS + 4);
+    }
+
+    // Cardinal tick marks for E, S, W
+    AM_drawScreenLine(ox + r - 2, oy, ox + r + 2, oy, GRAYS + 6); // East
+    AM_drawScreenLine(ox, oy + r - 2, ox, oy + r + 2, GRAYS + 6); // South
+    AM_drawScreenLine(ox - r - 2, oy, ox - r + 2, oy, GRAYS + 6); // West
+
+    // Bold North Indicator (▲ N) pointing UP (DOOM Automap is strictly North-Up)
+    AM_drawScreenLine(ox, oy - r - 5, ox - 3, oy - r, REDS + 8);
+    AM_drawScreenLine(ox, oy - r - 5, ox + 3, oy - r, REDS + 8);
+    AM_drawScreenLine(ox - 3, oy - r, ox + 3, oy - r, REDS + 8);
+
+    // Letter 'N'
+    int nx = ox - 2;
+    int ny = oy - r - 12;
+    AM_drawScreenLine(nx, ny, nx, ny + 4, WHITE);
+    AM_drawScreenLine(nx, ny, nx + 4, ny + 4, WHITE);
+    AM_drawScreenLine(nx + 4, ny, nx + 4, ny + 4, WHITE);
+
+    // Rotating compass needle pointing in console player's forward direction
+    if (plr && plr->mo)
+    {
+        angle_t angle = plr->mo->angle;
+        float fx = (float)finecosine[angle >> ANGLETOFINESHIFT] / 65536.0f;
+        float fy = -(float)finesine[angle >> ANGLETOFINESHIFT] / 65536.0f;
+
+        // Front half of needle (bright gold/yellow)
+        AM_drawScreenLine(ox, oy, ox + (int)(fx * 8.5f), oy + (int)(fy * 8.5f), YELLOWS);
+        // Back half of needle (dim gray)
+        AM_drawScreenLine(ox, oy, ox - (int)(fx * 5.0f), oy - (int)(fy * 5.0f), GRAYS + 6);
+        // Center pivot
+        if (ox >= 0 && ox < f_w && oy >= 0 && oy < f_h)
+        {
+            fb[oy * f_w + ox] = (byte)WHITE;
+        }
+    }
+}
+
 void AM_Drawer (void)
 {
     if (!automapactive) return;
@@ -1360,7 +1564,21 @@ void AM_Drawer (void)
     AM_drawCrosshair(XHAIRCOLORS);
 
     AM_drawMarks();
+    AM_drawCompassRose();
 
     V_MarkRect(f_x, f_y, f_w, f_h);
 
+}
+
+float Android_GetPlayerHeadingDegrees(void)
+{
+    if (gamestate == GS_LEVEL && playeringame[consoleplayer] && players[consoleplayer].mo)
+    {
+        double deg = (double)players[consoleplayer].mo->angle * (360.0 / 4294967296.0);
+        double heading = 450.0 - deg;
+        while (heading >= 360.0) heading -= 360.0;
+        while (heading < 0.0) heading += 360.0;
+        return (float)heading;
+    }
+    return 0.0f;
 }

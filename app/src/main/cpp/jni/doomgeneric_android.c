@@ -54,6 +54,28 @@ int Android_GetMouseDeltaY(void)
     return dy;
 }
 
+static float s_mapPanDeltaX = 0.0f;
+static float s_mapPanDeltaY = 0.0f;
+static pthread_mutex_t s_MapPanMutex = PTHREAD_MUTEX_INITIALIZER;
+
+void Android_SendMapPan(float dx, float dy)
+{
+    pthread_mutex_lock(&s_MapPanMutex);
+    s_mapPanDeltaX += dx;
+    s_mapPanDeltaY += dy;
+    pthread_mutex_unlock(&s_MapPanMutex);
+}
+
+void Android_ConsumeMapPan(int* outDx, int* outDy)
+{
+    pthread_mutex_lock(&s_MapPanMutex);
+    *outDx = (int)s_mapPanDeltaX;
+    *outDy = (int)s_mapPanDeltaY;
+    s_mapPanDeltaX -= (float)*outDx;
+    s_mapPanDeltaY -= (float)*outDy;
+    pthread_mutex_unlock(&s_MapPanMutex);
+}
+
 void Android_QueueKey(int pressed, unsigned char doomKey)
 {
     pthread_mutex_lock(&s_KeyMutex);

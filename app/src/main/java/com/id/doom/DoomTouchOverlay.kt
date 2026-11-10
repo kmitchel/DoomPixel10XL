@@ -24,6 +24,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
     private sealed class PointerRole {
         object Stick : PointerRole()
         object MenuDrag : PointerRole()
+        data class MapPan(var lastX: Float, var lastY: Float) : PointerRole()
         data class Look(var lastX: Float, var lastY: Float) : PointerRole()
         data class FireAndLook(var lastX: Float, var lastY: Float) : PointerRole()
         data class FireAndStrafe(
@@ -211,6 +212,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
     private val rectMapGrid = RectF()
     private val rectMapMark = RectF()
     private val rectMapClear = RectF()
+    private val rectMapHud = RectF()
 
     // Menu Utility Buttons (Dynamically shown on top-right only when Menu is active)
     private val rectQuickSave = RectF()
@@ -299,6 +301,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
         rectMapGrid.setEmpty()
         rectMapMark.setEmpty()
         rectMapClear.setEmpty()
+        rectMapHud.setEmpty()
         rectQuickSave.setEmpty()
         rectQuickLoad.setEmpty()
         rectGamma.setEmpty()
@@ -367,6 +370,12 @@ class DoomTouchOverlay @JvmOverloads constructor(
             curX = rectMapMark.right + btnGap
 
             rectMapClear.set(curX, topY, curX + mdW, topY + topH)
+
+            val hudW = 280f * density
+            val hudH = 22f * density
+            val hudLeft = (w - hudW) / 2f
+            val hudTop = topY + topH + 6f * density
+            rectMapHud.set(hudLeft, hudTop, hudLeft + hudW, hudTop + hudH)
         }
 
         // Menu Utilities on top-right when DOOM Menu is active (and not in a Y/N prompt)
@@ -629,10 +638,38 @@ class DoomTouchOverlay @JvmOverloads constructor(
         if (!rectMapZoomIn.isEmpty) {
             drawButton(canvas, rectMapZoomIn, if (isKeyHeld(DoomBridge.KEY_EQUALS)) paintBtnPressed else paintBtnFill, paintStrokeGold, "Z+", paintTextSmall)
             drawButton(canvas, rectMapZoomOut, if (isKeyHeld(DoomBridge.KEY_MINUS)) paintBtnPressed else paintBtnFill, paintStrokeGold, "Z-", paintTextSmall)
-            drawButton(canvas, rectMapFollow, if (isKeyHeld(DoomBridge.KEY_F)) paintBtnPressed else paintBtnFill, paintStroke, "FLW", paintTextSmall)
+            val isFreePan = (uiMask and DoomBridge.UI_BIT_FREE_PAN) != 0
+            val flwFill = if (isFreePan) paintBtnTurn else paintBtnEnabled
+            val flwStroke = if (isFreePan) paintStrokeGold else paintStrokeGreen
+            val flwLabel = if (isFreePan) "PAN" else "FLW"
+            drawButton(canvas, rectMapFollow, if (isKeyHeld(DoomBridge.KEY_F)) paintBtnPressed else flwFill, flwStroke, flwLabel, paintTextSmall)
             drawButton(canvas, rectMapGrid, if (isKeyHeld(DoomBridge.KEY_G)) paintBtnPressed else paintBtnFill, paintStroke, "GRID", paintTextSmall)
             drawButton(canvas, rectMapMark, if (isKeyHeld(DoomBridge.KEY_M)) paintBtnPressed else paintBtnFill, paintStroke, "MRK", paintTextSmall)
             drawButton(canvas, rectMapClear, if (isKeyHeld(DoomBridge.KEY_C)) paintBtnPressed else paintBtnFill, paintStroke, "CLR", paintTextSmall)
+        }
+
+        // Tactical Automap Navigation & Compass HUD Pill
+        if (!rectMapHud.isEmpty) {
+            val heading = DoomBridge.nativeGetPlayerAngle()
+            val headingInt = (heading + 0.5f).toInt() % 360
+            val cardinal = when (headingInt) {
+                in 338..359, in 0..22 -> "N"
+                in 23..67 -> "NE"
+                in 68..112 -> "E"
+                in 113..157 -> "SE"
+                in 158..202 -> "S"
+                in 203..247 -> "SW"
+                in 248..292 -> "W"
+                in 293..337 -> "NW"
+                else -> "N"
+            }
+            val isFreePan = (uiMask and DoomBridge.UI_BIT_FREE_PAN) != 0
+            val modeStr = if (isFreePan) "FREE PAN (DRAG TO PAN)" else "FOLLOWING PLAYER"
+            val hudText = "HEADING: %03d° %s  |  %s".format(headingInt, cardinal, modeStr)
+
+            canvas.drawRoundRect(rectMapHud, 6f * density, 6f * density, paintBtnPod)
+            canvas.drawRoundRect(rectMapHud, 6f * density, 6f * density, if (isFreePan) paintStrokeGold else paintStrokeGreen)
+            canvas.drawText(hudText, rectMapHud.centerX(), rectMapHud.centerY() + (4f * density), paintTextSmall)
         }
 
         // Menu Utilities (Only drawn on top-right when DOOM Menu is active)
@@ -1003,15 +1040,24 @@ class DoomTouchOverlay @JvmOverloads constructor(
             return
         }
 
-        // 8. Title Screen / Intermission Direct Touch (Never during active level gameplay)
+        // 8. Automap Free Drag Panning: when automap is open, dragging on the map surface pans the view
+        if ((uiMask and DoomBridge.UI_BIT_AUTOMAP) != 0 &&
+            (x in viewportLeft..(viewportLeft + viewportW) || x > viewportLeft + viewportW) &&
+            !rectCluster.contains(x, y) && y > (50f * density)) {
+            pointerRoles[pid] = PointerRole.MapPan(x, y)
+            return
+        }
+
+        // 9. Title Screen / Intermission Direct Touch (Never during active level gameplay)
         val inLevelGameplay = (uiMask and DoomBridge.UI_BIT_MAP) != 0
         if (!inLevelGameplay && x in viewportLeft..(viewportLeft + viewportW) && y in viewportTop..(viewportTop + viewportH)) {
             val normX = ((x - viewportLeft) / viewportW).coerceIn(0f, 1f)
             val normY = ((y - viewportTop) / viewportH).coerceIn(0f, 1f)
             DoomBridge.nativeTouchScreen(normX, normY)
+            return
         }
 
-        // 9. Right-Screen Swipe-to-Look
+        // 10. Right-Screen Swipe-to-Look
         pointerRoles[pid] = PointerRole.Look(x, y)
     }
 
@@ -1115,6 +1161,17 @@ class DoomTouchOverlay @JvmOverloads constructor(
                     val normX = ((x - viewportLeft) / viewportW).coerceIn(0f, 1f)
                     // Movement may adjust a slider captured on press, never select again.
                     DoomBridge.nativeDragMenu(normX)
+                }
+            }
+            is PointerRole.MapPan -> {
+                val deltaX = x - role.lastX
+                val deltaY = y - role.lastY
+                role.lastX = x
+                role.lastY = y
+                if (deltaX != 0f || deltaY != 0f) {
+                    val viewportW = (height * 4f / 3f).coerceAtMost(width.toFloat())
+                    val scale = 320f / viewportW.coerceAtLeast(1f)
+                    DoomBridge.nativePanAutomap(deltaX * scale, deltaY * scale)
                 }
             }
             is PointerRole.Look -> {
