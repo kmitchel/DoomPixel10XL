@@ -26,10 +26,17 @@ class DoomTouchOverlay @JvmOverloads constructor(
         object MenuDrag : PointerRole()
         data class Look(var lastX: Float, var lastY: Float) : PointerRole()
         data class FireAndLook(var lastX: Float, var lastY: Float) : PointerRole()
+        data class FireAndStrafe(
+            var lastX: Float,
+            var lastY: Float,
+            var isFiring: Boolean = true,
+            var activeStrafeKey: Int = 0
+        ) : PointerRole()
         data class HoldKey(val doomKey: Int) : PointerRole()
     }
 
     private val pointerRoles = mutableMapOf<Int, PointerRole>()
+    private val density: Float get() = resources.displayMetrics.density
 
     // Paints
     private val paintBase = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -183,6 +190,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
 
     // Action Buttons (Right-side vertically stacked tactical cluster):
     private val rectCluster = RectF()
+    private val rectFireStrafeConsole = RectF()
     private val rectFire = RectF()
     private val rectSideLeft = RectF()
     private val rectSideRight = RectF()
@@ -261,6 +269,10 @@ class DoomTouchOverlay @JvmOverloads constructor(
         for (role in pointerRoles.values) {
             if (role is PointerRole.HoldKey && role.doomKey == doomKey) return true
             if (role is PointerRole.FireAndLook && doomKey == DoomBridge.KEY_FIRE) return true
+            if (role is PointerRole.FireAndStrafe) {
+                if (role.isFiring && doomKey == DoomBridge.KEY_FIRE) return true
+                if (role.activeStrafeKey == doomKey) return true
+            }
         }
         return false
     }
@@ -448,10 +460,12 @@ class DoomTouchOverlay @JvmOverloads constructor(
         // 2. Action Buttons: centered horizontally in the right letterbox area with generous padding
         // Outer pod: rectCluster
         // Tier 1 (Top): rectUse (same height as FIRE)
-        // Tier 2 (Middle): rectFire (center horizontally aligned with left joystick stickCenterBaseY)
-        // Tier 3 (Bottom): rectSideLeft (◀) and rectSideRight (▶) (same height as FIRE)
-        // All three tiers share the exact same height (btnH = 50dp) and generous padding
-        val clusterW = 100f * density
+        // Tier 2 (Main): Integrated FIRE & STRAFE Console (center horizontally aligned with left joystick stickCenterBaseY)
+        //   - Left Wing: rectSideLeft (◀ STRAFE LEFT)
+        //   - Center Core: rectFire (FIRE)
+        //   - Right Wing: rectSideRight (STRAFE RIGHT ▶)
+        //   - Combined Bounds: rectFireStrafeConsole
+        val clusterW = 110f * density
         val rightLetterboxW = w - viewportRight
         val colLeft: Float
         val colRight: Float
@@ -466,14 +480,41 @@ class DoomTouchOverlay @JvmOverloads constructor(
 
         val btnH = 50f * density
         val rowGap = 9f * density
-        val strafeGap = 8f * density
         val podPad = 10f * density
+        val wingW = 28f * density
+        val dockGap = 3f * density
 
-        // Tier 2 (Middle): FIRE button (horizontally aligned with left joystick stickCenterBaseY)
+        // Tier 2 (Main): Integrated FIRE & STRAFE console (horizontally aligned with left joystick stickCenterBaseY)
         val fireCenterY = stickCenterBaseY
         val fireTop = fireCenterY - (btnH / 2f)
         val fireBottom = fireCenterY + (btnH / 2f)
+
+        // Left Strafe Wing (◀)
+        rectSideLeft.set(
+            colLeft,
+            fireTop,
+            colLeft + wingW,
+            fireBottom
+        )
+
+        // Center FIRE Core
         rectFire.set(
+            colLeft + wingW + dockGap,
+            fireTop,
+            colRight - wingW - dockGap,
+            fireBottom
+        )
+
+        // Right Strafe Wing (▶)
+        rectSideRight.set(
+            colRight - wingW,
+            fireTop,
+            colRight,
+            fireBottom
+        )
+
+        // Combined console bounds for touch hit-testing and sliding
+        rectFireStrafeConsole.set(
             colLeft,
             fireTop,
             colRight,
@@ -490,30 +531,12 @@ class DoomTouchOverlay @JvmOverloads constructor(
             useBottom
         )
 
-        // Tier 3 (Bottom): Strafe dual rocker (same height as FIRE)
-        val strafeTop = fireBottom + rowGap
-        val strafeBottom = strafeTop + btnH
-        val strafeW = (clusterW - strafeGap) / 2f
-
-        rectSideLeft.set(
-            colLeft,
-            strafeTop,
-            colLeft + strafeW,
-            strafeBottom
-        )
-        rectSideRight.set(
-            colLeft + strafeW + strafeGap,
-            strafeTop,
-            colRight,
-            strafeBottom
-        )
-
         // Pod Backdrop surrounding the vertical stack with 10dp tactical padding on all sides
         rectCluster.set(
             colLeft - podPad,
             useTop - podPad,
             colRight + podPad,
-            strafeBottom + podPad
+            fireBottom + podPad
         )
 
         // 3. Center Prompt Buttons (For Y/N questions)
@@ -666,30 +689,42 @@ class DoomTouchOverlay @JvmOverloads constructor(
             cornerRadius = 14f * density
         )
 
-        // Tier 2 (Middle): FIRE button (center horizontally aligned with left joystick)
+        // Tier 2 (Main): Integrated FIRE & STRAFE Console (center horizontally aligned with left joystick)
         val fireHeld = isKeyHeld(DoomBridge.KEY_FIRE)
-        canvas.drawRoundRect(rectFire, 14f * density, 14f * density, if (fireHeld) paintBtnPressed else paintBtnFire)
-        canvas.drawRoundRect(rectFire, 14f * density, 14f * density, paintStrokeRed)
-        canvas.drawText("FIRE", rectFire.centerX(), rectFire.centerY() + (6f * density), paintTextLarge)
+        val strafeLHeld = isKeyHeld(DoomBridge.KEY_STRAFE_L)
+        val strafeRHeld = isKeyHeld(DoomBridge.KEY_STRAFE_R)
 
-        // Tier 3 (Bottom): Strafe dual rocker buttons (same height as FIRE)
+        // Left Strafe Wing (◀)
         drawButton(
             canvas,
             rectSideLeft,
-            if (isKeyHeld(DoomBridge.KEY_STRAFE_L)) paintBtnPressed else paintBtnStrafe,
-            paintStrokeStrafe,
+            if (strafeLHeld) paintBtnPressed else paintBtnStrafe,
+            if (strafeLHeld) paintStrokeGold else paintStrokeStrafe,
             "◀",
             paintTextLarge,
-            cornerRadius = 14f * density
+            cornerRadius = 12f * density
         )
+
+        // Center FIRE Core
+        drawButton(
+            canvas,
+            rectFire,
+            if (fireHeld) paintBtnPressed else paintBtnFire,
+            if (fireHeld) paintStrokeGold else paintStrokeRed,
+            "FIRE",
+            paintTextLarge,
+            cornerRadius = 12f * density
+        )
+
+        // Right Strafe Wing (▶)
         drawButton(
             canvas,
             rectSideRight,
-            if (isKeyHeld(DoomBridge.KEY_STRAFE_R)) paintBtnPressed else paintBtnStrafe,
-            paintStrokeStrafe,
+            if (strafeRHeld) paintBtnPressed else paintBtnStrafe,
+            if (strafeRHeld) paintStrokeGold else paintStrokeStrafe,
             "▶",
             paintTextLarge,
-            cornerRadius = 14f * density
+            cornerRadius = 12f * density
         )
 
         // 5. Prompt Overlay (When DOOM prompts Y/N)
@@ -816,20 +851,22 @@ class DoomTouchOverlay @JvmOverloads constructor(
             }
         }
 
-        // 3. Right-Side Action Buttons (FIRE + Strafe L/R flanking buttons + USE)
-        if (rectFire.contains(x, y)) {
-            // Pure KEY_FIRE (never sends KEY_ENTER!), plus allows dragging thumb to aim while firing
-            pointerRoles[pid] = PointerRole.FireAndLook(x, y)
+        // 3. Right-Side Action Buttons: Integrated FIRE & STRAFE Console + USE
+        if (rectFireStrafeConsole.contains(x, y)) {
+            val role = PointerRole.FireAndStrafe(x, y, isFiring = true, activeStrafeKey = 0)
+            pointerRoles[pid] = role
             DoomBridge.onHapticEvent(1)
             DoomBridge.nativeSendKey(1, DoomBridge.KEY_FIRE)
-            return
-        }
-        if (rectSideLeft.contains(x, y)) {
-            pressAndHoldKey(pid, DoomBridge.KEY_STRAFE_L)
-            return
-        }
-        if (rectSideRight.contains(x, y)) {
-            pressAndHoldKey(pid, DoomBridge.KEY_STRAFE_R)
+
+            // Determine if initial touch lands on left wing (◀) or right wing (▶)
+            if (rectSideLeft.contains(x, y) || x < rectFire.left + (4f * density)) {
+                role.activeStrafeKey = DoomBridge.KEY_STRAFE_L
+                DoomBridge.nativeSendKey(1, DoomBridge.KEY_STRAFE_L)
+            } else if (rectSideRight.contains(x, y) || x > rectFire.right - (4f * density)) {
+                role.activeStrafeKey = DoomBridge.KEY_STRAFE_R
+                DoomBridge.nativeSendKey(1, DoomBridge.KEY_STRAFE_R)
+            }
+            postInvalidate()
             return
         }
         if (rectUse.contains(x, y)) {
@@ -1098,6 +1135,27 @@ class DoomTouchOverlay @JvmOverloads constructor(
                     DoomBridge.nativeSendLook(deltaX, deltaY)
                 }
             }
+            is PointerRole.FireAndStrafe -> {
+                // Dynamic strafe steering across the integrated console:
+                // Sliding/leaning left triggers STRAFE_L, sliding/leaning right triggers STRAFE_R, center zone fires without strafe
+                val newStrafeKey = when {
+                    x <= rectFire.left + (8f * density) || rectSideLeft.contains(x, y) -> DoomBridge.KEY_STRAFE_L
+                    x >= rectFire.right - (8f * density) || rectSideRight.contains(x, y) -> DoomBridge.KEY_STRAFE_R
+                    else -> 0
+                }
+
+                if (newStrafeKey != role.activeStrafeKey) {
+                    if (role.activeStrafeKey != 0) {
+                        DoomBridge.nativeSendKey(0, role.activeStrafeKey)
+                    }
+                    role.activeStrafeKey = newStrafeKey
+                    if (newStrafeKey != 0) {
+                        DoomBridge.nativeSendKey(1, newStrafeKey)
+                        DoomBridge.onHapticEvent(1)
+                    }
+                    postInvalidate()
+                }
+            }
             else -> {}
         }
     }
@@ -1116,6 +1174,15 @@ class DoomTouchOverlay @JvmOverloads constructor(
                     DoomBridge.nativeSendKey(0, DoomBridge.KEY_FIRE)
                 }
             }
+            is PointerRole.FireAndStrafe -> {
+                if (role.activeStrafeKey != 0) {
+                    DoomBridge.nativeSendKey(0, role.activeStrafeKey)
+                }
+                if (!isKeyHeld(DoomBridge.KEY_FIRE)) {
+                    DoomBridge.nativeSendKey(0, DoomBridge.KEY_FIRE)
+                }
+                postInvalidate()
+            }
             is PointerRole.HoldKey -> {
                 if (!isKeyHeld(role.doomKey)) {
                     DoomBridge.nativeSendKey(0, role.doomKey)
@@ -1129,6 +1196,10 @@ class DoomTouchOverlay @JvmOverloads constructor(
         for (role in pointerRoles.values) {
             when (role) {
                 is PointerRole.FireAndLook -> DoomBridge.nativeSendKey(0, DoomBridge.KEY_FIRE)
+                is PointerRole.FireAndStrafe -> {
+                    if (role.activeStrafeKey != 0) DoomBridge.nativeSendKey(0, role.activeStrafeKey)
+                    DoomBridge.nativeSendKey(0, DoomBridge.KEY_FIRE)
+                }
                 is PointerRole.HoldKey -> DoomBridge.nativeSendKey(0, role.doomKey)
                 else -> {}
             }
