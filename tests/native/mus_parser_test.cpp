@@ -117,6 +117,15 @@ int main() {
         ComputeStereoGains(35, 8, &distL, &distR);
         assert(distL > distR * 10);
         assert(distL > 40); // Clearly audible across room
+
+        // 9. Soft-knee limiter: linear below threshold, bounded without overflow at extreme peaks
+        assert(SoftLimitSample(0) == 0);
+        assert(SoftLimitSample(24576) == 24576);
+        assert(SoftLimitSample(-24576) == -24576);
+        int16_t posPeak = SoftLimitSample(16 * 32768);
+        int16_t negPeak = SoftLimitSample(-16 * 32768);
+        assert(posPeak > 24576 && posPeak <= 32767);
+        assert(negPeak < -24576 && negPeak >= -32768);
     }
     std::puts("Spatial audio & stereo panning regression tests passed");
 }

@@ -484,6 +484,23 @@ static inline void SynthesizeOneMusicFrameLocked(float* outLeft, float* outRight
     *outRight = sumR * masterMusicScale;
 }
 
+static inline int16_t SoftLimitSample(int32_t val) {
+    constexpr int32_t kLinearThreshold = 24576;
+    constexpr int32_t kMaxAmp = 32767;
+    constexpr int32_t kHeadroom = kMaxAmp - kLinearThreshold; // 8191
+    if (val > kLinearThreshold) {
+        int64_t excess = static_cast<int64_t>(val) - kLinearThreshold;
+        int32_t limited = kLinearThreshold + static_cast<int32_t>((excess * kHeadroom) / (excess + kHeadroom));
+        return static_cast<int16_t>(limited > kMaxAmp ? kMaxAmp : limited);
+    }
+    if (val < -kLinearThreshold) {
+        int64_t excess = -static_cast<int64_t>(val) - kLinearThreshold;
+        int32_t limited = -(kLinearThreshold + static_cast<int32_t>((excess * kHeadroom) / (excess + kHeadroom)));
+        return static_cast<int16_t>(limited < -32768 ? -32768 : limited);
+    }
+    return static_cast<int16_t>(val);
+}
+
 static aaudio_data_callback_result_t DoomAudioDataCallback(
     AAudioStream* /*stream*/,
     void* /*userData*/,
@@ -539,25 +556,8 @@ static aaudio_data_callback_result_t DoomAudioDataCallback(
             }
         }
 
-        // Smooth soft-knee saturation prevents harsh digital clipping when multiple loud sounds overlap
-        auto softLimit = [](int32_t val) -> int16_t {
-            constexpr int32_t kLinearThreshold = 24576;
-            constexpr int32_t kMaxAmp = 32767;
-            constexpr int32_t kHeadroom = kMaxAmp - kLinearThreshold; // 8191
-            if (val > kLinearThreshold) {
-                int32_t excess = val - kLinearThreshold;
-                val = kLinearThreshold + (excess * kHeadroom) / (excess + kHeadroom);
-                if (val > kMaxAmp) val = kMaxAmp;
-            } else if (val < -kLinearThreshold) {
-                int32_t excess = -val - kLinearThreshold;
-                val = -(kLinearThreshold + (excess * kHeadroom) / (excess + kHeadroom));
-                if (val < -32768) val = -32768;
-            }
-            return static_cast<int16_t>(val);
-        };
-
-        out[frame * 2] = softLimit(mixL);
-        out[frame * 2 + 1] = softLimit(mixR);
+        out[frame * 2] = SoftLimitSample(mixL);
+        out[frame * 2 + 1] = SoftLimitSample(mixR);
     }
 
     pthread_mutex_unlock(&g_audioMutex);

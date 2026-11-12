@@ -192,14 +192,16 @@ class UpdateManager(private val context: Context) {
         val updatesDir = File(context.cacheDir, "updates")
         if (!updatesDir.exists()) updatesDir.mkdirs()
 
-        val destFile = File(updatesDir, updateInfo.apkName)
+        val safeApkName = File(updateInfo.apkName).name.takeIf { it.isNotBlank() && it != "." && it != ".." }
+            ?: throw IOException("Invalid update APK filename: ${updateInfo.apkName}")
+        val destFile = File(updatesDir, safeApkName)
         if (destFile.exists() && destFile.length() == updateInfo.apkSize && updateInfo.apkSize > 0) {
             Log.i(TAG, "Cached APK already exists and matches expected size (${destFile.length()} bytes)")
             onProgress(destFile.length(), destFile.length())
             return destFile
         }
 
-        val tempFile = File(updatesDir, "${updateInfo.apkName}.tmp")
+        val tempFile = File(updatesDir, "$safeApkName.tmp")
         if (tempFile.exists()) tempFile.delete()
 
         val conn = openConnectionWithRedirects(updateInfo.apkUrl)
@@ -250,8 +252,9 @@ class UpdateManager(private val context: Context) {
             val code = conn.responseCode
             if (code in 301..308) {
                 val location = conn.getHeaderField("Location") ?: throw IOException("Redirect without Location header")
+                val resolvedUrl = URL(URL(url), location).toString()
                 conn.disconnect()
-                url = location
+                url = resolvedUrl
                 continue
             }
             if (code in 200..299) {

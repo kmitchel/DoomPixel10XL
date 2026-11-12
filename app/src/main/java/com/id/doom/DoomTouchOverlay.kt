@@ -1224,10 +1224,11 @@ class DoomTouchOverlay @JvmOverloads constructor(
                 }
 
                 if (newStrafeKey != role.activeStrafeKey) {
-                    if (role.activeStrafeKey != 0) {
-                        DoomBridge.nativeSendKey(0, role.activeStrafeKey)
-                    }
+                    val prevStrafeKey = role.activeStrafeKey
                     role.activeStrafeKey = newStrafeKey
+                    if (prevStrafeKey != 0 && !isKeyHeld(prevStrafeKey)) {
+                        DoomBridge.nativeSendKey(0, prevStrafeKey)
+                    }
                     if (newStrafeKey != 0) {
                         DoomBridge.nativeSendKey(1, newStrafeKey)
                         DoomBridge.onHapticEvent(1)
@@ -1254,7 +1255,7 @@ class DoomTouchOverlay @JvmOverloads constructor(
                 }
             }
             is PointerRole.FireAndStrafe -> {
-                if (role.activeStrafeKey != 0) {
+                if (role.activeStrafeKey != 0 && !isKeyHeld(role.activeStrafeKey)) {
                     DoomBridge.nativeSendKey(0, role.activeStrafeKey)
                 }
                 if (!isKeyHeld(DoomBridge.KEY_FIRE)) {

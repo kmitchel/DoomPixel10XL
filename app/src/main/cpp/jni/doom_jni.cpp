@@ -245,13 +245,17 @@ extern "C" void Android_BlitFrame(const uint32_t* screenBuffer, int width, int h
                     needsDetach = true;
                 }
             }
-            if (env && !env->ExceptionCheck()) {
-                env->CallStaticVoidMethod(g_bridgeClass, g_onFirstFrameMethod, (jint)currentSession);
+            if (env) {
                 if (!env->ExceptionCheck()) {
-                    s_dispatchedSessionId.store(currentSession, std::memory_order_relaxed);
-                    LOGI("First frame event successfully dispatched for session %d", currentSession);
+                    env->CallStaticVoidMethod(g_bridgeClass, g_onFirstFrameMethod, (jint)currentSession);
+                    if (!env->ExceptionCheck()) {
+                        s_dispatchedSessionId.store(currentSession, std::memory_order_relaxed);
+                        LOGI("First frame event successfully dispatched for session %d", currentSession);
+                    } else {
+                        LOGW("Exception during onFirstFrameEvent for session %d", currentSession);
+                        env->ExceptionClear();
+                    }
                 } else {
-                    LOGW("Exception during onFirstFrameEvent for session %d", currentSession);
                     env->ExceptionClear();
                 }
                 if (needsDetach) {
@@ -276,7 +280,12 @@ extern "C" void Android_TriggerHaptic(int effectType)
         }
     }
 
-    env->CallStaticVoidMethod(g_bridgeClass, g_onHapticMethod, effectType);
+    if (!env->ExceptionCheck()) {
+        env->CallStaticVoidMethod(g_bridgeClass, g_onHapticMethod, effectType);
+    }
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
 
     if (needsDetach) {
         g_vm->DetachCurrentThread();
@@ -297,7 +306,12 @@ extern "C" void Android_OnQuit(void)
         }
     }
 
-    env->CallStaticVoidMethod(g_bridgeClass, g_onQuitMethod);
+    if (!env->ExceptionCheck()) {
+        env->CallStaticVoidMethod(g_bridgeClass, g_onQuitMethod);
+    }
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
 
     if (needsDetach) {
         g_vm->DetachCurrentThread();
@@ -494,17 +508,25 @@ extern "C" void Android_GetAnalogMove(float* outForward, float* outStrafe, float
     *outTurn = g_analogTurn.load(std::memory_order_relaxed) * sensScale;
 }
 
+static std::atomic<bool> s_analogForwardPressed{false};
+static std::atomic<bool> s_analogBackwardPressed{false};
+static std::atomic<bool> s_analogLeftPressed{false};
+static std::atomic<bool> s_analogRightPressed{false};
+
+static void ResetAnalogMenuKeyState()
+{
+    s_analogForwardPressed.store(false, std::memory_order_relaxed);
+    s_analogBackwardPressed.store(false, std::memory_order_relaxed);
+    s_analogLeftPressed.store(false, std::memory_order_relaxed);
+    s_analogRightPressed.store(false, std::memory_order_relaxed);
+}
+
 JNIEXPORT void JNICALL
 Java_com_id_doom_DoomBridge_nativeSendAnalog(JNIEnv* /*env*/, jclass /*clazz*/, jfloat forward, jfloat strafe, jfloat turn)
 {
     g_analogForward.store(forward, std::memory_order_relaxed);
     g_analogStrafe.store(strafe, std::memory_order_relaxed);
     g_analogTurn.store(turn, std::memory_order_relaxed);
-
-    static bool forwardPressed = false;
-    static bool backwardPressed = false;
-    static bool leftPressed = false;
-    static bool rightPressed = false;
 
     int mask = s_cachedUiStateMask.load(std::memory_order_acquire);
     bool isMenu = (mask & (1 << 6)) != 0 || (mask & (1 << 3)) != 0;
@@ -514,10 +536,10 @@ Java_com_id_doom_DoomBridge_nativeSendAnalog(JNIEnv* /*env*/, jclass /*clazz*/, 
     // During active gameplay (!useArrowKeys), movement & turning are driven continuously
     // via Android_GetAnalogMove() in G_BuildTiccmd() — release any menu/map keys cleanly.
     if (!useArrowKeys) {
-        if (forwardPressed) { Android_QueueKey(0, KEY_UPARROW); forwardPressed = false; }
-        if (backwardPressed) { Android_QueueKey(0, KEY_DOWNARROW); backwardPressed = false; }
-        if (leftPressed) { Android_QueueKey(0, KEY_LEFTARROW); leftPressed = false; }
-        if (rightPressed) { Android_QueueKey(0, KEY_RIGHTARROW); rightPressed = false; }
+        if (s_analogForwardPressed.exchange(false, std::memory_order_relaxed)) Android_QueueKey(0, KEY_UPARROW);
+        if (s_analogBackwardPressed.exchange(false, std::memory_order_relaxed)) Android_QueueKey(0, KEY_DOWNARROW);
+        if (s_analogLeftPressed.exchange(false, std::memory_order_relaxed)) Android_QueueKey(0, KEY_LEFTARROW);
+        if (s_analogRightPressed.exchange(false, std::memory_order_relaxed)) Android_QueueKey(0, KEY_RIGHTARROW);
         return;
     }
 
@@ -526,36 +548,40 @@ Java_com_id_doom_DoomBridge_nativeSendAnalog(JNIEnv* /*env*/, jclass /*clazz*/, 
     const float releaseThresh = 0.20f;
     float horiz = (turn != 0.0f) ? turn : strafe;
 
-    if (forward > pressThresh && !forwardPressed) {
+    bool fwd = s_analogForwardPressed.load(std::memory_order_relaxed);
+    if (forward > pressThresh && !fwd) {
         Android_QueueKey(1, KEY_UPARROW);
-        forwardPressed = true;
-    } else if (forward < releaseThresh && forwardPressed) {
+        s_analogForwardPressed.store(true, std::memory_order_relaxed);
+    } else if (forward < releaseThresh && fwd) {
         Android_QueueKey(0, KEY_UPARROW);
-        forwardPressed = false;
+        s_analogForwardPressed.store(false, std::memory_order_relaxed);
     }
 
-    if (forward < -pressThresh && !backwardPressed) {
+    bool bwd = s_analogBackwardPressed.load(std::memory_order_relaxed);
+    if (forward < -pressThresh && !bwd) {
         Android_QueueKey(1, KEY_DOWNARROW);
-        backwardPressed = true;
-    } else if (forward > -releaseThresh && backwardPressed) {
+        s_analogBackwardPressed.store(true, std::memory_order_relaxed);
+    } else if (forward > -releaseThresh && bwd) {
         Android_QueueKey(0, KEY_DOWNARROW);
-        backwardPressed = false;
+        s_analogBackwardPressed.store(false, std::memory_order_relaxed);
     }
 
-    if (horiz < -pressThresh && !leftPressed) {
+    bool lft = s_analogLeftPressed.load(std::memory_order_relaxed);
+    if (horiz < -pressThresh && !lft) {
         Android_QueueKey(1, KEY_LEFTARROW);
-        leftPressed = true;
-    } else if (horiz > -releaseThresh && leftPressed) {
+        s_analogLeftPressed.store(true, std::memory_order_relaxed);
+    } else if (horiz > -releaseThresh && lft) {
         Android_QueueKey(0, KEY_LEFTARROW);
-        leftPressed = false;
+        s_analogLeftPressed.store(false, std::memory_order_relaxed);
     }
 
-    if (horiz > pressThresh && !rightPressed) {
+    bool rgt = s_analogRightPressed.load(std::memory_order_relaxed);
+    if (horiz > pressThresh && !rgt) {
         Android_QueueKey(1, KEY_RIGHTARROW);
-        rightPressed = true;
-    } else if (horiz < releaseThresh && rightPressed) {
+        s_analogRightPressed.store(true, std::memory_order_relaxed);
+    } else if (horiz < releaseThresh && rgt) {
         Android_QueueKey(0, KEY_RIGHTARROW);
-        rightPressed = false;
+        s_analogRightPressed.store(false, std::memory_order_relaxed);
     }
 }
 
@@ -650,6 +676,7 @@ Java_com_id_doom_DoomBridge_nativeSetPaused(JNIEnv* /*env*/, jclass /*clazz*/, j
         g_analogForward.store(0.0f, std::memory_order_relaxed);
         g_analogStrafe.store(0.0f, std::memory_order_relaxed);
         g_analogTurn.store(0.0f, std::memory_order_relaxed);
+        ResetAnalogMenuKeyState();
         Android_ReleaseHeldKeys();
         if (g_gameRunning) {
             s_pendingConfigSave.store(true, std::memory_order_relaxed);
@@ -665,6 +692,7 @@ Java_com_id_doom_DoomBridge_nativeStop(JNIEnv* /*env*/, jclass /*clazz*/)
     g_analogForward.store(0.0f, std::memory_order_relaxed);
     g_analogStrafe.store(0.0f, std::memory_order_relaxed);
     g_analogTurn.store(0.0f, std::memory_order_relaxed);
+    ResetAnalogMenuKeyState();
     Android_ReleaseHeldKeys();
     if (g_gameRunning) {
         std::unique_lock<std::mutex> lock(s_saveMutex);

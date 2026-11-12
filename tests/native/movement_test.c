@@ -3,6 +3,8 @@
 #include <stdio.h>
 
 #include "doomgeneric.h"
+#include "doomgeneric_android.h"
+#include "doomkeys.h"
 #include "g_game.h"
 #include "i_sound.h"
 #include "m_controls.h"
@@ -58,6 +60,16 @@ int main(void)
     joybspeed = 29;
     check_move(0.5f, 0.5f, 25, 20);
     check_move(1.0f, 1.0f, 50, 40);
+
+    // Key queue and release-all reconciliation must release held keys cleanly.
+    int pressed = 0;
+    unsigned char key = 0;
+    Android_QueueKey(1, KEY_FIRE);
+    assert(DG_GetKey(&pressed, &key) == 1 && pressed == 1 && key == KEY_FIRE);
+    Android_ReleaseHeldKeys();
+    assert(DG_GetKey(&pressed, &key) == 1 && pressed == 0 && key == KEY_FIRE);
+    assert(DG_GetKey(&pressed, &key) == 0);
+
     puts("Analog movement regression tests passed");
     return 0;
 }

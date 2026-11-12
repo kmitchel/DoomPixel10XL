@@ -592,12 +592,20 @@ class DoomActivity : ComponentActivity() {
                         }
                     }
                 }
+            } finally {
+                executor.shutdown()
             }
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        DoomBridge.hapticListener = null
+        DoomBridge.quitListener = null
+        DoomBridge.wadPickerListener = null
+        DoomBridge.updateCheckListener = null
+        DoomBridge.firstFrameListener = null
+        UpdateManager.onUpdateAvailabilityChanged = null
         DoomBridge.nativeStop()
     }
 }
